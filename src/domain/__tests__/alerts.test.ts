@@ -45,6 +45,7 @@ describe("alert rules", () => {
   it("flags flat readiness over three weeks", () => {
     expect(kinds({ ...base, readinessWeekly: [44, 44, 45, 44] })).toContain("stagnating");
     expect(kinds({ ...base, readinessWeekly: [44, 44] })).not.toContain("stagnating");
+    expect(kinds({ ...base, readinessWeekly: [0, 0, 0, 0] })).not.toContain("stagnating");
   });
 
   it("flags two or more missed homeworks and a mock-score drop", () => {

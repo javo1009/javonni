@@ -72,7 +72,8 @@ export function evaluateAlerts(s: StudentSnapshot, cfg = ALERT_CONFIG): Alert[] 
   if (w.length >= cfg.stagnationWeeks + 1) {
     const recent = w.slice(-(cfg.stagnationWeeks + 1));
     const gain = recent[recent.length - 1] - recent[0];
-    if (Math.abs(gain) < cfg.stagnationDelta) {
+    // Flat at zero just means no practice yet; "inactive" already covers that.
+    if (Math.abs(gain) < cfg.stagnationDelta && recent.some((v) => v > 0)) {
       out.push({
         ...base,
         kind: "stagnating",

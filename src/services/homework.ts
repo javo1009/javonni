@@ -146,14 +146,15 @@ async function teacherAssignment(db: Db, actor: Actor, assignmentId: string) {
   return a;
 }
 
+/** Students the homework applies to: targeted, and enrolled before it was due. */
 async function targetedStudents(db: Db, a: AssignmentRow): Promise<{ id: string; name: string }[]> {
   const roster = await db
-    .select({ id: users.id, name: users.name })
+    .select({ id: users.id, name: users.name, joinedAt: enrollments.joinedAt })
     .from(enrollments)
     .innerJoin(users, eq(users.id, enrollments.studentId))
     .where(eq(enrollments.classId, a.classId))
     .orderBy(asc(users.name));
-  return roster.filter((r) => isTargeted(a, r.id));
+  return roster.filter((r) => isTargeted(a, r.id) && r.joinedAt <= a.dueAt).map(({ id, name }) => ({ id, name }));
 }
 
 export async function listTeacherAssignments(db: Db, actor: Actor, classId: string) {
@@ -500,7 +501,10 @@ export async function getSubmissionForTeacher(db: Db, actor: Actor, submissionId
   };
 }
 
-/** For the cockpit: missed (past due, not submitted, last 30 days) per student, and on-time rate. */
+/**
+ * For the cockpit: missed (past due, not submitted, last 30 days) per student, and on-time rate.
+ * No actor: callers must have checked class access (getClassOverview does).
+ */
 export async function homeworkStats(db: Db, classId: string, now = new Date()) {
   const since = new Date(now.getTime() - 30 * 86_400_000);
   const due = await db

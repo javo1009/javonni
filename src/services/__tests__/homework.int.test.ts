@@ -254,6 +254,11 @@ describe("homework stats", () => {
     await t.db.insert(enrollments).values({ classId, studentId: late.id, joinedAt: new Date("2026-11-18T00:00:00Z") });
     const stats = await homeworkStats(t.db, classId, new Date("2026-11-20T00:00:00Z"));
     expect(stats.missedByStudent.get(late.id) ?? 0).toBe(0);
+    // ...and the teacher's funnel agrees: they aren't counted as targeted for past work.
+    const list = await listTeacherAssignments(t.db, teacher, classId);
+    const past = list.find((a) => a.dueAt < new Date("2026-11-18T00:00:00Z"))!;
+    const detail = await getAssignmentForTeacher(t.db, teacher, past.id);
+    expect(detail.students.some((s) => s.id === late.id)).toBe(false);
     await t.db.delete(enrollments).where(eq(enrollments.studentId, late.id));
   });
 });

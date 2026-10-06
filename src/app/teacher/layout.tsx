@@ -1,6 +1,6 @@
 import { AppShell } from "@/components/shell/app-shell";
 import type { NavItem } from "@/components/shell/nav-links";
-import { getCurriculum, teacherContext } from "@/server/context";
+import { getCurriculumOrNull, teacherContext } from "@/server/context";
 
 const NAV: NavItem[] = [
   { href: "/teacher", label: "Cockpit", icon: "cockpit", exact: true },
@@ -11,9 +11,9 @@ const NAV: NavItem[] = [
 
 export default async function TeacherLayout({ children }: { children: React.ReactNode }) {
   const { user } = await teacherContext();
-  const c = await getCurriculum();
+  const c = await getCurriculumOrNull();
   return (
-    <AppShell nav={NAV} user={user} areaLabel="Teach" sampleCurriculum={c.version.isSample}>
+    <AppShell nav={NAV} user={user} areaLabel="Teach" sampleCurriculum={c?.version.isSample ?? false}>
       {children}
     </AppShell>
   );
