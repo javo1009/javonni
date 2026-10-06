@@ -1,70 +1,104 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Card, CardBody, CardHeader, EmptyState, PageHeader, TableWrap, td, th } from "@/components/ui";
-import { CopyButton } from "@/components/teacher/copy-button";
-import { CreateClassForm } from "@/components/teacher/create-class-form";
-import { formatShortDate } from "@/lib/format";
+import {
+  ButtonLink,
+  Card,
+  CardBody,
+  EmptyState,
+  PageHeader,
+} from "@/components/ui";
+import { NewClassForm } from "@/components/teacher/class-forms";
+import { JoinCodeChip } from "@/components/teacher/join-code";
+import { addDays } from "@/domain/dates";
+import { examCountdown } from "@/lib/class-roster";
+import { formatDay, plural } from "@/lib/format";
 import { teacherContext } from "@/server/context";
 import { listClasses } from "@/services/classes";
+import { MAX_EXAM_DATE, MIN_EXAM_DATE } from "@/services/tracker";
 
 export const metadata: Metadata = { title: "Classes" };
 
 export default async function ClassesPage() {
-  const { actor, db } = await teacherContext();
-  const classes = await listClasses(db, actor);
+  const { actor, db, today } = await teacherContext();
+  // listClasses is typed for every role; teachers and admins get the full row.
+  const classes = (await listClasses(db, actor)) as (Awaited<
+    ReturnType<typeof listClasses>
+  >[number] & { weeklyTargetMinutes: number })[];
+  const minExam = [MIN_EXAM_DATE, addDays(today, 7)].sort().pop()!;
+
   return (
     <>
-      <PageHeader title="Classes" description="Your classes, their join codes and rosters." />
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div>
-          {classes.length === 0 ? (
-            <EmptyState title="No classes yet">Create your first class with the form. You&apos;ll get a join code to share with students.</EmptyState>
-          ) : (
-            <TableWrap label="Classes">
-              <table className="relative w-full">
-                <caption className="sr-only">Your classes</caption>
-                <thead className="border-b border-border">
-                  <tr>
-                    <th scope="col" className={th}>Class</th>
-                    <th scope="col" className={`${th} text-right`}>Students</th>
-                    <th scope="col" className={th}>Exam</th>
-                    <th scope="col" className={th}>Join code</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {classes.map((c) => (
-                    <tr key={c.id}>
-                      <th scope="row" className={`${td} text-left font-medium`}>
-                        <Link href={`/teacher/classes/${c.id}`} className="text-ink hover:underline">
-                          {c.name}
-                        </Link>
-                        <span className="block text-xs font-normal text-ink-2">
-                          <Link href={`/teacher?class=${c.id}`} className="hover:underline">
-                            Open cockpit
+      <PageHeader
+        eyebrow="TEACHER"
+        title="Classes"
+        description="Each class has its own join code, exam date and weekly target. Open one to change its settings or see who has joined."
+      />
+      <div className="space-y-6 pb-12">
+        {classes.length === 0 ? (
+          <EmptyState title="You don't have a class yet">
+            Create one below to get a join code for your students.
+          </EmptyState>
+        ) : (
+          <ul className="grid gap-4 md:grid-cols-2">
+            {classes.map((c) => {
+              const exam = examCountdown(c.examDate, today);
+              return (
+                <li key={c.id}>
+                  <Card className="h-full">
+                    <CardBody className="flex h-full flex-col gap-4 pt-5">
+                      <div>
+                        <h2 className="text-xl font-semibold leading-tight tracking-tight text-ink">
+                          <Link
+                            href={`/teacher/classes/${c.id}`}
+                            className="hover:underline"
+                          >
+                            {c.name}
                           </Link>
-                        </span>
-                      </th>
-                      <td className={`${td} tabular text-right`}>{c.students}</td>
-                      <td className={td}>{c.examDate ? formatShortDate(c.examDate) : <span className="text-ink-3">Not set</span>}</td>
-                      <td className={td}>
-                        <span className="flex items-center gap-2">
-                          <code className="font-mono font-semibold tracking-[0.15em]">{c.joinCode}</code>
-                          <CopyButton value={c.joinCode} label={`Copy join code for ${c.name}`} />
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </TableWrap>
-          )}
+                        </h2>
+                        <p className="mt-1 text-sm text-ink-2">
+                          {plural(c.students, "student")}
+                          <span aria-hidden> · </span>
+                          {exam.date
+                            ? `Exam ${formatDay(exam.date)} ${exam.date.slice(0, 4)} (${exam.text})`
+                            : exam.text}
+                        </p>
+                        <p className="mt-0.5 text-sm text-ink-3">
+                          Target{" "}
+                          {Math.round((c.weeklyTargetMinutes / 60) * 10) / 10} h
+                          per week
+                        </p>
+                      </div>
+                      <JoinCodeChip code={c.joinCode} />
+                      <div className="mt-auto flex flex-wrap gap-2">
+                        <ButtonLink
+                          href={`/teacher?class=${c.id}`}
+                          variant="primary"
+                          size="sm"
+                        >
+                          Class overview
+                        </ButtonLink>
+                        <ButtonLink
+                          href={`/teacher/classes/${c.id}`}
+                          variant="secondary"
+                          size="sm"
+                        >
+                          Settings and roster
+                        </ButtonLink>
+                      </div>
+                    </CardBody>
+                  </Card>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <div className="max-w-3xl">
+          <NewClassForm
+            minExam={minExam}
+            maxExam={MAX_EXAM_DATE}
+            defaultOpen={classes.length === 0}
+          />
         </div>
-        <Card id="create" aria-labelledby="create-h" className="scroll-mt-20 self-start">
-          <CardHeader id="create-h" title="Create a class" />
-          <CardBody>
-            <CreateClassForm />
-          </CardBody>
-        </Card>
       </div>
     </>
   );

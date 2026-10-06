@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { attempts, enrollments, questions } from "@/db/schema";
-import { seedSampleCurriculum } from "@/db/seed/sample";
 import { createTestDb, type TestDb } from "@/test/db";
-import { assertCanViewStudent, createClass, getClassOverview, getRoster, listClasses } from "../classes";
+import { seedBase } from "@/test/seed";
+import { assertCanViewStudent } from "../access";
+import { createClass, getClassOverview, getRoster, listClasses } from "../classes";
 import { getActiveCurriculum } from "../curriculum";
 import {
   assembleQuestions,
@@ -40,15 +41,15 @@ async function actor(email: string, role: "student" | "teacher") {
 
 beforeAll(async () => {
   t = await createTestDb();
-  await seedSampleCurriculum(t.db);
+  await seedBase(t.db);
   teacher = await actor("teach@x.test", "teacher");
   otherTeacher = await actor("other@x.test", "teacher");
   s1 = await actor("s1@x.test", "student");
   s2 = await actor("s2@x.test", "student");
   outsider = await actor("out@x.test", "student");
-  const cls = await createClass(t.db, teacher, { name: "Evening A" });
+  const cls = await createClass(t.db, teacher, { name: "Evening A" }, "2026-11-01");
   classId = cls.id;
-  otherClassId = (await createClass(t.db, otherTeacher, { name: "Other" })).id;
+  otherClassId = (await createClass(t.db, otherTeacher, { name: "Other" }, "2026-11-01")).id;
   await t.db.insert(enrollments).values([
     { classId, studentId: s1.id },
     { classId, studentId: s2.id },
@@ -59,8 +60,8 @@ afterAll(() => t.drop());
 
 async function mcqItems(n: number) {
   const c = await getActiveCurriculum(t.db);
-  const losIds = c.los.filter((l) => l.code.startsWith("QM.")).map((l) => l.id);
-  const { questionIds } = await assembleQuestions(t.db, teacher, { losIds, count: n });
+  const moduleIds = c.modules.filter((m) => c.topicById.get(m.topicId)!.name === "Quantitative Methods").map((m) => m.id);
+  const { questionIds } = await assembleQuestions(t.db, teacher, { moduleIds, count: n });
   return questionIds.map((questionId) => ({ kind: "mcq" as const, questionId }));
 }
 
@@ -82,17 +83,20 @@ describe("classes and access control", () => {
   });
 
   it("doesn't let students create classes", async () => {
-    await expect(createClass(t.db, s1, { name: "Mine" })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(createClass(t.db, s1, { name: "Mine" }, "2026-11-01")).rejects.toBeInstanceOf(ForbiddenError);
   });
 });
 
 describe("assembleQuestions", () => {
-  it("spreads questions across objectives and reports uncovered ones", async () => {
+  it("spreads questions across chapters and reports uncovered ones", async () => {
     const c = await getActiveCurriculum(t.db);
-    const pick = ["QM.1.a", "QM.1.b", "EQ.1.c"].map((code) => c.los.find((l) => l.code === code)!.id);
-    const r = await assembleQuestions(t.db, teacher, { losIds: pick, count: 3 });
-    expect(r.questionIds).toHaveLength(3);
-    expect(r.uncoveredLosIds).toEqual([pick[2]]);
+    const pick = ["quantitative-methods-04", "quantitative-methods-05", "economics-01"].map((slug) => c.moduleBySlug.get(slug)!.id);
+    const r = await assembleQuestions(t.db, teacher, { moduleIds: pick, count: 4 });
+    expect(r.questionIds).toHaveLength(4);
+    expect(r.uncoveredModuleIds).toEqual([pick[2]]); // no sample question for economics-01
+    expect(r.coveredModuleIds).toEqual([pick[0], pick[1]]);
+    await expect(assembleQuestions(t.db, s1, { moduleIds: pick, count: 2 })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(assembleQuestions(t.db, teacher, { moduleIds: [], count: 2 })).rejects.toBeInstanceOf(ValidationError);
   });
 });
 
@@ -267,16 +271,34 @@ describe("homework stats", () => {
 });
 
 describe("class overview", () => {
-  it("builds KPIs, alerts and a teach-next suggestion", async () => {
-    const stats = await homeworkStats(t.db, classId, new Date("2026-11-20T00:00:00Z"));
-    expect(stats.missedByStudent.get(s2.id)).toBeGreaterThanOrEqual(2); // Strict + Lenient not done by s2
-    const o = await getClassOverview(t.db, teacher, classId, "2026-11-20", stats, Date.UTC(2026, 10, 20));
+  it("builds KPIs, per-topic summary and alerts for a class", async () => {
+    const o = await getClassOverview(t.db, teacher, classId, "2026-11-20", Date.UTC(2026, 10, 20));
     expect(o.students).toHaveLength(2);
     expect(o.kpis.total).toBe(2);
-    expect(o.teachNext).not.toBeNull();
+    expect(o.topics).toHaveLength(10);
+    expect(o.topicSummary).toHaveLength(10);
     const s2Row = o.students.find((s) => s.id === s2.id)!;
     expect(s2Row.alerts.some((a) => a.kind === "missed_homework")).toBe(true);
     expect(o.attention.length).toBeGreaterThan(0);
-    await expect(getClassOverview(t.db, otherTeacher, classId, "2026-11-20", stats)).rejects.toBeInstanceOf(ForbiddenError);
+    expect(o.weakestTopic).not.toBeNull();
+    await expect(getClassOverview(t.db, otherTeacher, classId, "2026-11-20")).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});
+
+describe("editing homework", () => {
+  it("lets a draft change everything but an assigned task only its due date", async () => {
+    const { updateAssignment, publishAssignment } = await import("../homework");
+    const items = await mcqItems(1);
+    const draft = await createAssignment(t.db, teacher, { classId, title: "Edit me", dueAt: DUE, target: { kind: "class" }, policies, items, assign: false }, NOW);
+    const later = new Date("2026-11-20T21:00:00Z");
+    const d = await updateAssignment(t.db, teacher, draft.id, { title: "Edited", dueAt: later }, NOW);
+    expect(d.title).toBe("Edited");
+    expect(d.dueAt.toISOString()).toBe(later.toISOString());
+    await expect(updateAssignment(t.db, teacher, draft.id, { dueAt: new Date("2026-11-01") }, NOW)).rejects.toBeInstanceOf(ValidationError);
+    await expect(updateAssignment(t.db, otherTeacher, draft.id, { title: "Hijack" }, NOW)).rejects.toBeInstanceOf(ForbiddenError);
+    await publishAssignment(t.db, teacher, draft.id, NOW);
+    await expect(updateAssignment(t.db, teacher, draft.id, { title: "Changed under students" }, NOW)).rejects.toThrow(/Only the due date/);
+    const ext = await updateAssignment(t.db, teacher, draft.id, { dueAt: new Date("2026-11-25T21:00:00Z") }, NOW);
+    expect(ext.dueAt.toISOString()).toBe("2026-11-25T21:00:00.000Z");
   });
 });

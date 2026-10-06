@@ -3,7 +3,7 @@ __pycache__/
 
 # --- Node / Next.js app ---
 /node_modules
-/.next/
+/.next*/
 /out/
 /build
 /coverage

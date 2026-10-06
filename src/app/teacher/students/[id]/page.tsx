@@ -1,219 +1,203 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BookOpen, ClipboardCheck, PencilLine } from "lucide-react";
-import { Card, CardBody, CardHeader, EmptyState, PageHeader, Stat, StatusPill, TableWrap, buttonClass, td, th } from "@/components/ui";
-import { BurnUp } from "@/components/viz/burn-up";
-import { ReadinessBand } from "@/components/viz/readiness";
-import { AdherenceChart, TopicMasteryBars } from "@/components/teacher/charts";
-import { AlertBadge, HomeworkStatus, LateBadge, scoreText } from "@/components/teacher/labels";
-import { formatDateTime, formatDay, formatMinutes, formatShortDate, hours, pct } from "@/lib/format";
+import { notFound } from "next/navigation";
+import { ReadOnlyTracker } from "@/components/tracker/student-detail";
+import {
+  Badge,
+  ButtonLink,
+  Card,
+  CardBody,
+  CardHeader,
+  EmptyState,
+  PageHeader,
+  TableWrap,
+  td,
+  th,
+} from "@/components/ui";
+import { ALERT_LABEL } from "@/lib/class-roster";
+import { formatWhen, relativeTime } from "@/components/homework/teacher/time";
 import { teacherContext } from "@/server/context";
-import { getStudent360 } from "@/services/teacher-views";
-import { orNotFound } from "../../_lib/guard";
+import { getTrackerSnapshot } from "@/services/tracker";
+import {
+  getStudentForTeacher,
+  type StudentHomeworkRow,
+} from "@/services/student-detail";
+import { ForbiddenError, NotFoundError } from "@/services/types";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const metadata: Metadata = { title: "Student" };
 
-const PLAN_STATE: Record<string, { label: string; tone: "good" | "brand" | "warn" | "risk" }> = {
-  ahead: { label: "Ahead of plan", tone: "good" },
-  on_track: { label: "On track", tone: "good" },
-  behind: { label: "Behind plan", tone: "warn" },
-  at_risk: { label: "At risk", tone: "risk" },
+const STATUS: Record<
+  StudentHomeworkRow["status"],
+  { label: string; tone: "neutral" | "warn" | "good" | "brand" }
+> = {
+  not_started: { label: "Not started", tone: "neutral" },
+  in_progress: { label: "In progress", tone: "neutral" },
+  submitted: { label: "Needs marking", tone: "warn" },
+  graded: { label: "Marked", tone: "good" },
 };
 
-const ACTIVITY_ICON = { study: BookOpen, practice: PencilLine, homework: ClipboardCheck } as const;
-const ACTIVITY_LABEL = { study: "Study", practice: "Practice", homework: "Homework" } as const;
-
-export default async function Student360({ params }: { params: Promise<{ id: string }> }) {
+export default async function StudentPage({
+  params,
+}: PageProps<"/teacher/students/[id]">) {
   const { id } = await params;
-  const { actor, db, today, now, user } = await teacherContext();
-  const v = await orNotFound(id, (sid) => getStudent360(db, actor, sid, today, now));
-  const c = v.curriculum;
-  const adherencePct = v.adherence.planned > 0 ? Math.round((Math.min(v.adherence.done, v.adherence.planned) / v.adherence.planned) * 100) : null;
-  const plan = v.assessment ? PLAN_STATE[v.assessment.state] : null;
-
-  const topicRows = c.topics.map((t) => {
-    const st = v.snapshot.topicStats.get(t.id);
-    const tr = v.snapshot.readiness.topics.find((x) => x.topicId === t.id);
-    return {
-      id: t.id,
-      code: t.code,
-      name: t.name,
-      weight: `${t.weightMin}–${t.weightMax}%`,
-      mastery: st?.mastery ?? 0,
-      coverage: st?.coveragePct ?? 0,
-      hasEvidence: (tr?.attemptedShare ?? 0) > 0,
-      belowFloor: st?.belowFloor ?? false,
-    };
-  });
-
-  let burnSummary = "";
-  if (v.burnUp) {
-    const gap = Math.round((v.burnUp.studiedToDate - v.burnUp.plannedToDate) / 6) / 10;
-    burnSummary = `Planned ${hours(v.burnUp.plannedToDate)} by today, studied ${hours(v.burnUp.studiedToDate)} (${gap >= 0 ? `${gap} h ahead` : `${-gap} h behind`}). ${hours(v.burnUp.totalPlanned)} planned in total to the exam on ${formatShortDate(v.burnUp.examDate)}.`;
-  }
+  if (!UUID.test(id)) notFound();
+  const { user, actor, db, today, now } = await teacherContext();
+  const swallow = (e: unknown) => {
+    if (e instanceof NotFoundError || e instanceof ForbiddenError) notFound();
+    throw e;
+  };
+  const detail = await getStudentForTeacher(db, actor, id, today, now).catch(
+    swallow,
+  );
+  const snapshot = await getTrackerSnapshot(db, actor, id, today).catch(
+    swallow,
+  );
+  const { student, classes, alerts, homework } = detail;
 
   return (
     <>
       <PageHeader
-        eyebrow={
-          <span>
-            Student{v.classes.length ? " · " : ""}
-            {v.classes.map((cl, i) => (
-              <span key={cl.id}>
-                {i > 0 && ", "}
-                <Link href={`/teacher/classes/${cl.id}`} className="hover:underline">
-                  {cl.name}
-                </Link>
-              </span>
-            ))}
-          </span>
-        }
-        title={v.student.name}
-        description={v.student.email}
+        eyebrow={`TEACHER · ${classes
+          .map((c) => c.name)
+          .join(", ")
+          .toUpperCase()}`}
+        title={student.name}
+        description={student.email}
         actions={
-          <a href={`mailto:${encodeURIComponent(v.student.email)}?subject=${encodeURIComponent("Checking in")}`} className={buttonClass("secondary")}>
-            Email {v.student.name.split(" ")[0]}
-          </a>
+          <ButtonLink
+            href={`/teacher?class=${classes[0].id}`}
+            variant="secondary"
+          >
+            Back to class
+          </ButtonLink>
         }
       />
 
-      {v.alerts.length > 0 && (
-        <Card className="mb-6 border-warn/40" aria-labelledby="alerts-h">
-          <CardHeader id="alerts-h" title={`Alerts (${v.alerts.length})`} />
-          <CardBody>
-            <ul className="space-y-2">
-              {v.alerts.map((a) => (
-                <li key={a.kind} className="flex flex-wrap items-center gap-2 text-sm">
-                  <AlertBadge kind={a.kind} severity={a.severity} />
-                  <span className="text-ink">{a.evidence}</span>
+      <Card className="mb-6" aria-labelledby="attention-h">
+        <CardHeader id="attention-h" title="Needs attention" />
+        <CardBody>
+          {alerts.length === 0 ? (
+            <p className="text-ink-2">
+              Nothing flagged. {student.name.split(" ")[0]} is on track for the
+              class thresholds.
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {alerts.map((a) => (
+                <li key={a.kind} className="flex items-start gap-3 text-sm">
+                  <Badge tone={a.severity === "high" ? "risk" : "warn"}>
+                    {a.severity === "high" ? "▲ High" : "● Watch"}
+                  </Badge>
+                  <span>
+                    <span className="font-semibold text-ink">
+                      {ALERT_LABEL[a.kind]}
+                    </span>
+                    <span className="block text-ink-2">{a.evidence}</span>
+                  </span>
                 </li>
               ))}
             </ul>
-          </CardBody>
-        </Card>
-      )}
-
-      <Card className="mb-6">
-        <CardBody className="grid gap-6 pt-5 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
-          <ReadinessBand r={v.snapshot.readiness} trend={v.weeklyReadiness} />
-          <Stat
-            label="Plan adherence"
-            value={adherencePct === null ? "—" : `${adherencePct}%`}
-            hint={plan ? <StatusPill tone={plan.tone} label={plan.label} /> : "No active plan"}
-            tone={adherencePct !== null && adherencePct < 60 ? "warn" : undefined}
-          />
-          <Stat label="Hours (7 days)" value={v.hours7d} hint={`Coverage ${pct(v.snapshot.coverage.coveragePct)} of LOS`} />
-          <Stat label="Last active" value={v.lastActive ? formatShortDate(v.lastActive) : "Never"} hint={v.plan ? `Exam ${formatShortDate(v.plan.examDate)}` : undefined} />
-        </CardBody>
-      </Card>
-
-      <Card className="mb-6" aria-labelledby="burn-h">
-        <CardHeader id="burn-h" title="Plan burn-up" />
-        <CardBody>
-          {v.burnUp && v.burnUp.points.length > 1 ? (
-            <BurnUp points={v.burnUp.points} today={today} summary={burnSummary} />
-          ) : (
-            <p className="text-sm text-ink-2">{v.student.name.split(" ")[0]} hasn&apos;t created a study plan yet.</p>
-          )}
-          {v.assessment && v.assessment.deltaMinutes < 0 && (
-            <p className="mt-2 text-sm text-ink-2">Behind by {formatMinutes(-v.assessment.deltaMinutes)} of planned work.</p>
           )}
         </CardBody>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card aria-labelledby="mastery-h">
-          <CardHeader
-            id="mastery-h"
-            title="Mastery by topic"
-            subtitle={`${v.snapshot.coverage.proficient} proficient · ${v.snapshot.coverage.reviewDue} due for review · ${v.snapshot.coverage.covered} of ${v.snapshot.coverage.total} objectives covered`}
-          />
-          <CardBody>
-            <TopicMasteryBars rows={topicRows} />
-          </CardBody>
-        </Card>
-        <div className="space-y-6">
-          <Card aria-labelledby="adh-h">
-            <CardHeader id="adh-h" title="Planned vs studied · last 14 days" />
-            <CardBody>
-              <AdherenceChart days={v.daily} />
-            </CardBody>
-          </Card>
-          <Card aria-labelledby="act-h">
-            <CardHeader id="act-h" title="Recent activity · last 14 days" />
-            <CardBody>
-              {v.activity.length === 0 ? (
-                <p className="text-sm text-ink-2">No activity in the last 14 days.</p>
-              ) : (
-                <ol className="space-y-2">
-                  {v.activity.map((e, i) => {
-                    const Icon = ACTIVITY_ICON[e.kind];
-                    return (
-                    <li key={i} className="grid grid-cols-[6.5rem_1fr] gap-3 text-sm">
-                      <span className="tabular text-ink-2">{formatDay(e.date)}</span>
-                      <span className="flex items-start gap-2 text-ink">
-                        <Icon aria-hidden className="mt-0.5 size-4 shrink-0 text-ink-3" />
-                        <span className="sr-only">{ACTIVITY_LABEL[e.kind]}: </span>
-                        <span>{e.text}</span>
-                      </span>
-                    </li>
-                    );
-                  })}
-                </ol>
-              )}
-            </CardBody>
-          </Card>
-        </div>
-      </div>
+      <ReadOnlyTracker snapshot={snapshot} />
 
-      <section className="mt-6" aria-labelledby="hw-h">
-        <h2 id="hw-h" className="mb-3 text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
+      <section className="mt-8" aria-labelledby="hw-h">
+        <h2
+          id="hw-h"
+          className="mb-3 text-xl font-semibold tracking-tight text-ink"
+        >
           Homework
         </h2>
-        {v.homework.length === 0 ? (
-          <EmptyState title="No homework assigned yet" />
+        {homework.length === 0 ? (
+          <EmptyState title="No homework assigned yet">
+            Homework assigned to {student.name.split(" ")[0]} will show up here.
+          </EmptyState>
         ) : (
-          <TableWrap label="Homework history">
-            <table className="relative w-full min-w-[40rem]">
-              <caption className="sr-only">Homework history for {v.student.name}</caption>
-              <thead className="border-b border-border">
-                <tr>
-                  <th scope="col" className={th}>Homework</th>
-                  <th scope="col" className={th}>Due</th>
-                  <th scope="col" className={th}>Status</th>
-                  <th scope="col" className={`${th} text-right`}>Score</th>
+          <TableWrap label={`${student.name}'s homework`}>
+            <table className="w-full min-w-[40rem]">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className={th}>Homework</th>
+                  <th className={th}>Due</th>
+                  <th className={th}>Status</th>
+                  <th className={th}>Files</th>
+                  <th className={th}>Score</th>
+                  <th className={th}>
+                    <span className="sr-only">Open</span>
+                  </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
-                {v.homework.map((h) => (
-                  <tr key={h.id}>
-                    <th scope="row" className={`${td} text-left font-medium`}>
-                      <Link href={`/teacher/homework/${h.id}`} className="text-ink hover:underline">
-                        {h.title}
-                      </Link>
-                      {v.classes.length > 1 && <span className="block text-xs font-normal text-ink-2">{h.className}</span>}
-                    </th>
-                    <td className={`${td} tabular`}>{formatDateTime(h.dueAt, user.timezone)}</td>
-                    <td className={td}>
-                      <span className="flex flex-wrap items-center gap-2">
-                        <HomeworkStatus status={h.status} overdue={h.overdue} />
-                        <LateBadge late={h.late} />
-                        {h.status === "submitted" && h.submissionId && (
-                          <Link href={`/teacher/homework/${h.id}/submissions/${h.submissionId}`} className="text-sm text-brand hover:underline">
-                            Grade
+              <tbody>
+                {homework.map((h) => {
+                  const s = STATUS[h.status];
+                  return (
+                    <tr
+                      key={h.assignmentId}
+                      className="border-b border-border last:border-0"
+                    >
+                      <td className={td}>
+                        <Link
+                          href={`/teacher/homework/${h.assignmentId}`}
+                          className="font-medium text-link hover:underline"
+                        >
+                          {h.title}
+                        </Link>
+                        <span className="block text-xs text-ink-3">
+                          {h.className}
+                        </span>
+                      </td>
+                      <td className={td}>
+                        {formatWhen(h.dueAt, user.timezone)}
+                        <span
+                          className="block text-xs text-ink-3"
+                          suppressHydrationWarning
+                        >
+                          {relativeTime(h.dueAt, now)}
+                        </span>
+                      </td>
+                      <td className={td}>
+                        <Badge tone={s.tone}>{s.label}</Badge>
+                        {h.late && (
+                          <Badge tone="warn" className="ml-1.5">
+                            Late
+                          </Badge>
+                        )}
+                        {h.overdue && (
+                          <Badge tone="risk" className="ml-1.5">
+                            Overdue
+                          </Badge>
+                        )}
+                      </td>
+                      <td className={`${td} tabular`}>
+                        {h.uploadedFiles || "–"}
+                      </td>
+                      <td className={`${td} tabular`}>
+                        {h.score !== null && h.maxScore
+                          ? `${h.score}/${h.maxScore}`
+                          : "–"}
+                      </td>
+                      <td className={td}>
+                        {h.submissionId && h.status !== "in_progress" && (
+                          <Link
+                            href={`/teacher/homework/${h.assignmentId}/submissions/${h.submissionId}`}
+                            className="text-sm font-semibold text-link hover:underline"
+                          >
+                            {h.status === "submitted" ? "Mark" : "Review"}
                           </Link>
                         )}
-                      </span>
-                    </td>
-                    <td className={`${td} tabular text-right`}>{scoreText(h.score, h.maxScore)}</td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </TableWrap>
         )}
       </section>
-
     </>
   );
 }

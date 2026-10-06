@@ -1,98 +1,89 @@
 @import "tailwindcss";
 
-/* Theme: tokens from docs/cfa-platform/UX-DESIGN.md §3. Mastery ramps validated
-   with the dataviz validator (ordinal, light surface #fcfcfb / dark #0E1722). */
+/* Theme: ported from the sample study tracker (dark navy + cyan). See docs/cfa-platform/TRACKER-CONCEPT.md. */
 
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+@custom-variant dark (&:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *));
 
+/* Dark navy + cyan is the default (the study tracker's look); "light" is opt-in via the theme toggle. */
 :root {
+  color-scheme: dark;
+  --canvas: #08111d;
+  --canvas-glow: #18334b;
+  --surface: #101e2e;
+  --surface-2: #14273a;
+  --surface-3: #192e41;
+  --border: #21384d;
+  --border-strong: #2d455b;
+  --ink: #e9f2fb;
+  --ink-2: #9fb4c5;
+  --ink-3: #7e9aac;
+  --brand: #5cdbdf;
+  --brand-hi: #8cf0ef;
+  --brand-ink: #05202a;
+  --brand-soft: #17384a;
+  --eyebrow: #61cbd7;
+  --link: #79d7ee;
+  --warn: #ffbd93;
+  --warn-soft: #42291f;
+  --risk: #ff9d8e;
+  --risk-soft: #44201d;
+  --good: #99ecd0;
+  --good-soft: #1d493e;
+  --focus: #69dce5;
+  --meter-track: #20394b;
+  --meter-from: #2ba9cf;
+  --meter-to: #69e5dc;
+  --panel-hi-from: #15364c;
+  --panel-hi-to: #112236;
+  --panel-hi-border: #2d6375;
+  /* Ordinal ramp for heat cells: none, then low to high */
+  --m-none: #1a3245;
+  --m-1: #1f5f73;
+  --m-2: #2a86a0;
+  --m-3: #3fb4c3;
+  --m-4: #7ee8e0;
+  --m-hatch: #34546a;
+  --shadow: 0 12px 32px rgb(3 16 29 / 0.35);
+}
+
+:root[data-theme="light"] {
   color-scheme: light;
-  --canvas: #f5f7fa;
+  --canvas: #f3f6fa;
+  --canvas-glow: #dbeaf5;
   --surface: #ffffff;
-  --surface-2: #f0f3f7;
-  --border: #dde3ea;
-  --border-strong: #b9c3cf;
+  --surface-2: #f0f4f8;
+  --surface-3: #e6edf3;
+  --border: #d9e2ea;
+  --border-strong: #b5c3cf;
   --ink: #0b1f33;
   --ink-2: #4a5b6e;
-  --ink-3: #6b7b8c;
-  --brand: #0f6f6a;
+  --ink-3: #66788a;
+  --brand: #0e7c86;
+  --brand-hi: #0b6a73;
   --brand-ink: #ffffff;
-  --brand-soft: #e3f2f0;
+  --brand-soft: #dff3f4;
+  --eyebrow: #0e7c86;
+  --link: #0b6a8a;
   --warn: #9a4a00;
   --warn-soft: #fdf0e1;
   --risk: #b42318;
   --risk-soft: #fdeceb;
   --good: #1a7f4b;
   --good-soft: #e5f4ec;
-  --focus: #0f6f6a;
-  /* Mastery (ordinal): not started = hatch; then studied -> proficient */
+  --focus: #0e7c86;
+  --meter-track: #dde7ee;
+  --meter-from: #1d8fb8;
+  --meter-to: #2fc5bd;
+  --panel-hi-from: #e4f4f6;
+  --panel-hi-to: #f2f8fb;
+  --panel-hi-border: #9fd3d8;
   --m-none: #e5eaf1;
-  --m-1: #6fb9b2;
-  --m-2: #3e9c95;
-  --m-3: #1e7f79;
-  --m-4: #0f5f5a;
-  --m-hatch: #b9c3cf;
+  --m-1: #a5d6dd;
+  --m-2: #6bbac8;
+  --m-3: #2f97a9;
+  --m-4: #0c6a78;
+  --m-hatch: #b5c3cf;
   --shadow: 0 1px 2px rgb(11 31 51 / 0.06), 0 8px 24px rgb(11 31 51 / 0.06);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --canvas: #0a111a;
-    --surface: #0e1722;
-    --surface-2: #142030;
-    --border: #22324a;
-    --border-strong: #34496a;
-    --ink: #e8eef5;
-    --ink-2: #9fb0c3;
-    --ink-3: #7d8fa5;
-    --brand: #4fc3bb;
-    --brand-ink: #062320;
-    --brand-soft: #103532;
-    --warn: #f0a24b;
-    --warn-soft: #3a2710;
-    --risk: #ff8a7e;
-    --risk-soft: #3d1715;
-    --good: #5cd394;
-    --good-soft: #0f3322;
-    --focus: #4fc3bb;
-    --m-none: #1a2738;
-    --m-1: #1f6560;
-    --m-2: #2e8a83;
-    --m-3: #49ada5;
-    --m-4: #86d4cb;
-    --m-hatch: #34496a;
-    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.3);
-  }
-}
-
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --canvas: #0a111a;
-  --surface: #0e1722;
-  --surface-2: #142030;
-  --border: #22324a;
-  --border-strong: #34496a;
-  --ink: #e8eef5;
-  --ink-2: #9fb0c3;
-  --ink-3: #7d8fa5;
-  --brand: #4fc3bb;
-  --brand-ink: #062320;
-  --brand-soft: #103532;
-  --warn: #f0a24b;
-  --warn-soft: #3a2710;
-  --risk: #ff8a7e;
-  --risk-soft: #3d1715;
-  --good: #5cd394;
-  --good-soft: #0f3322;
-  --focus: #4fc3bb;
-  --m-none: #1a2738;
-  --m-1: #1f6560;
-  --m-2: #2e8a83;
-  --m-3: #49ada5;
-  --m-4: #86d4cb;
-  --m-hatch: #34496a;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.3);
 }
 
 @theme inline {
@@ -107,6 +98,10 @@
   --color-brand: var(--brand);
   --color-brand-ink: var(--brand-ink);
   --color-brand-soft: var(--brand-soft);
+  --color-brand-hi: var(--brand-hi);
+  --color-surface-3: var(--surface-3);
+  --color-eyebrow: var(--eyebrow);
+  --color-link: var(--link);
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
   --color-risk: var(--risk);
@@ -119,20 +114,21 @@
   --color-m-3: var(--m-3);
   --color-m-4: var(--m-4);
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+  --font-display: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --shadow-card: var(--shadow);
-  --radius-card: 12px;
+  --radius-card: 16px;
 }
 
 html {
   background: var(--canvas);
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--canvas);
+  background: radial-gradient(circle at 55% -18%, var(--canvas-glow) 0, var(--canvas) 42%) no-repeat, var(--canvas);
+  min-width: 320px;
   color: var(--ink);
   font-family: var(--font-sans);
-  font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
 }
 
@@ -149,7 +145,7 @@ table,
   border-radius: 4px;
 }
 
-/* Not-started mastery cells: hatch so state never depends on colour alone. */
+/* Not-started cells: hatch so state never depends on colour alone. */
 .hatch {
   background-color: var(--m-none);
   background-image: repeating-linear-gradient(135deg, transparent 0 4px, var(--m-hatch) 4px 5px);
@@ -164,4 +160,16 @@ table,
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Native controls follow the theme. */
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"] {
+  accent-color: var(--brand);
+}
+input,
+select,
+textarea {
+  color-scheme: inherit;
 }

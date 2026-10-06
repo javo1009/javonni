@@ -1,175 +1,217 @@
 import type { Metadata } from "next";
-import { ActivateVersion } from "@/components/admin/activate-version";
-import { ImportPanel } from "@/components/admin/import-panel";
-import { Badge, Banner, Card, CardBody, CardHeader, PageHeader, TableWrap, td, th } from "@/components/ui";
-import { OPTIONAL_COLUMNS, REQUIRED_COLUMNS } from "@/domain/curriculum-csv";
+import { ChevronRight } from "lucide-react";
+import {
+  Badge,
+  Banner,
+  Card,
+  CardBody,
+  CardHeader,
+  EmptyState,
+  PageHeader,
+  Stat,
+  TableWrap,
+  td,
+  th,
+} from "@/components/ui";
 import { formatDateTime, plural } from "@/lib/format";
 import { adminContext } from "@/server/context";
-import { listVersions } from "@/services/admin";
+import { adminCurriculum } from "@/services/admin";
 
 export const metadata: Metadata = { title: "Curriculum" };
 
-const OUTLINE_URL = "https://www.cfainstitute.org/programs/cfa-program/candidate-resources/level-i-exam";
-
-const COLUMN_HELP: Record<string, string> = {
-  topic_code: "Short code, no spaces (e.g. ETH). Repeat on every row of the topic.",
-  topic_name: "Same on every row of the topic.",
-  weight_min: "Exam weight range, whole percent 0–100.",
-  weight_max: "Must be ≥ weight_min.",
-  module_title: "Rows with the same title (within a topic) form one module.",
-  est_minutes: "Study minutes for the module. Blank = 180.",
-  los_code: "Unique objective code (e.g. ETH.1.a).",
-  command_word: "Verb such as describe, calculate. Blank = first word of the text.",
-  los_text: "The objective. See the licensing note.",
-  importance: "1 (low) to 3 (high). Blank = 2.",
-  topic_difficulty: "Optional. 1–3, default 2. Weights plan time.",
-  topic_spread: "Optional. true to spread the topic across the plan (e.g. Ethics).",
-};
+/** Exam weight as a printed range. */
+const weightLabel = (min: number, max: number) =>
+  min === max ? `${min}%` : `${min}–${max}%`;
 
 export default async function CurriculumPage() {
-  const { actor, db, user, today } = await adminContext();
-  const versions = await listVersions(db, actor);
-  const defaultYear = Math.max(2027, Number(today.slice(0, 4)));
+  const { actor, db, user } = await adminContext();
+  const c = await adminCurriculum(db, actor);
+
+  if (!c) {
+    return (
+      <>
+        <PageHeader eyebrow="Admin" title="Curriculum" />
+        <EmptyState title="No active curriculum">
+          Run the deploy setup (npm run db:seed) to load the official 2027 Level
+          I module list.
+        </EmptyState>
+      </>
+    );
+  }
 
   return (
     <>
       <PageHeader
         eyebrow="Admin"
         title="Curriculum"
-        description="Topics, modules and learning objectives are data. Import a version from CSV, check the differences, then make it active."
+        description="The topics and modules students track, in study order. This view is read-only."
       />
 
-      <div className="mb-6">
-        <Banner tone="warn" title="Get the official outline from CFA Institute, and check licensing">
-          <p>
-            Ascent does not ship the official 2027 Level I learning outcome statements. Download the topic outline from{" "}
-            <a href={OUTLINE_URL} className="font-medium underline" target="_blank" rel="noreferrer">
-              CFA Institute
-            </a>{" "}
-            and transcribe it into the CSV format below. Before showing verbatim objective text to students, confirm that CFA Institute&apos;s terms
-            allow it; if not, use the codes with short paraphrases of your own.
-          </p>
+      <div className="mb-6 space-y-3">
+        <Banner tone="brand" title="The official 2027 Level I module list">
+          Ten topics and {c.totals.modules} modules, loaded by the deploy setup.
+          There is no editing screen: to change the list, update the seed data
+          and redeploy. Existing student progress stays attached to its modules.
         </Banner>
+        {c.version.isSample && (
+          <Banner tone="warn" title="This version is flagged as sample data">
+            It isn&apos;t the official list. Replace it before real use.
+          </Banner>
+        )}
       </div>
 
-      <Card className="mb-6" aria-labelledby="versions-h">
-        <CardHeader id="versions-h" title="Versions" subtitle="Exactly one version is active. New study plans use it; existing plans keep the version they were built from." />
-        <CardBody>
-          {versions.length === 0 ? (
-            <p className="text-sm text-ink-2">No versions yet. Import one below.</p>
-          ) : (
-            <TableWrap label="Curriculum versions">
-              <table className="w-full">
-                <caption className="sr-only">Curriculum versions</caption>
-                <thead className="border-b border-border">
-                  <tr>
-                    <th scope="col" className={th}>
-                      Version
-                    </th>
-                    <th scope="col" className={th}>
-                      Status
-                    </th>
-                    <th scope="col" className={`${th} text-right`}>
-                      Topics
-                    </th>
-                    <th scope="col" className={`${th} text-right`}>
-                      Objectives
-                    </th>
-                    <th scope="col" className={`${th} text-right`}>
-                      Active plans
-                    </th>
-                    <th scope="col" className={th}>
-                      Created
-                    </th>
-                    <th scope="col" className={`${th} text-right`}>
-                      <span className="sr-only">Actions</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {versions.map((v) => (
-                    <tr key={v.id} className={v.isActive ? "bg-brand-soft/40" : undefined}>
-                      <td className={td}>
-                        <p className="font-medium text-ink">{v.name}</p>
-                        <p className="text-xs text-ink-2">
-                          Level {v.level} · {v.year}
-                          {v.sourceNote && <> · {v.sourceNote.length > 90 ? `${v.sourceNote.slice(0, 90)}…` : v.sourceNote}</>}
-                        </p>
-                      </td>
-                      <td className={td}>
-                        <div className="flex flex-wrap gap-1">
-                          {v.isActive ? <Badge tone="good">Active</Badge> : <Badge>Inactive</Badge>}
-                          {v.isSample && <Badge tone="risk">Sample</Badge>}
-                        </div>
-                      </td>
-                      <td className={`${td} tabular text-right`}>{v.topics}</td>
-                      <td className={`${td} tabular text-right`}>{v.los.toLocaleString()}</td>
-                      <td className={`${td} tabular text-right`}>{v.activePlans}</td>
-                      <td className={`${td} whitespace-nowrap text-ink-2`}>
-                        <time dateTime={v.createdAt.toISOString()}>{formatDateTime(v.createdAt, user.timezone)}</time>
-                      </td>
-                      <td className={`${td} text-right`}>
-                        <div className="flex flex-col items-end gap-1.5">
-                          {!v.isActive && <ActivateVersion versionId={v.id} name={v.name} />}
-                          <a href={`/admin/curriculum/export/${v.id}`} className="whitespace-nowrap text-sm font-medium text-brand hover:underline" aria-label={`Download ${v.name} as CSV`}>
-                            Download CSV
-                          </a>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </TableWrap>
-          )}
-          {versions.length > 0 && (
-            <p className="mt-3 text-sm text-ink-2">
-              {plural(versions.length, "version")} stored. Versions are never edited in place: to fix a typo, download the CSV, correct it and import it as a new
-              version.
-            </p>
+      <Card className="mb-6" aria-labelledby="version-h">
+        <CardHeader
+          id="version-h"
+          title={c.version.name}
+          action={
+            <Badge tone={c.version.isSample ? "warn" : "good"}>
+              {c.version.isSample ? "Sample data" : "Not sample data"}
+            </Badge>
+          }
+          subtitle={`Active version · ${c.version.year} · loaded ${formatDateTime(c.version.createdAt, user.timezone)}`}
+        />
+        <CardBody className="space-y-5">
+          <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
+            <Stat label="Topics" value={c.totals.topics} />
+            <Stat label="Modules" value={c.totals.modules} />
+            <Stat
+              label="Study weeks"
+              value={c.totals.studyWeeks}
+              hint="Suggested first pass"
+            />
+            <Stat
+              label="Published questions"
+              value={c.totals.questions.toLocaleString()}
+            />
+          </div>
+          {c.version.sourceNote && (
+            <div className="border-t border-border pt-4">
+              <p className="max-w-3xl text-sm text-ink-2">
+                <span className="font-semibold text-ink">Source note.</span>{" "}
+                {c.version.sourceNote}
+              </p>
+            </div>
           )}
         </CardBody>
       </Card>
 
-      <Card className="mb-6" aria-labelledby="import-h">
-        <CardHeader id="import-h" title="Import a new version" />
-        <CardBody>
-          <ImportPanel defaultYear={defaultYear} />
-        </CardBody>
-      </Card>
-
-      <Card aria-labelledby="format-h">
-        <CardHeader id="format-h" title="CSV format" subtitle="UTF-8, comma-separated (semicolons also work), header row first. Quote fields that contain commas, quotes or line breaks." />
-        <CardBody>
-          <TableWrap label="CSV columns">
-            <table className="w-full">
-              <caption className="sr-only">CSV columns</caption>
-              <thead className="border-b border-border">
-                <tr>
-                  <th scope="col" className={th}>
-                    Column
-                  </th>
-                  <th scope="col" className={th}>
-                    Required
-                  </th>
-                  <th scope="col" className={th}>
-                    Notes
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {[...REQUIRED_COLUMNS, ...OPTIONAL_COLUMNS].map((c) => (
-                  <tr key={c}>
-                    <td className={`${td} font-mono text-xs`}>{c}</td>
-                    <td className={td}>{(OPTIONAL_COLUMNS as readonly string[]).includes(c) ? "Optional column" : "Column required"}</td>
-                    <td className={`${td} text-ink-2`}>{COLUMN_HELP[c]}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </TableWrap>
-        </CardBody>
-      </Card>
+      <section aria-labelledby="topics-h">
+        <h2
+          id="topics-h"
+          className="mb-3 text-xl font-semibold tracking-tight text-ink"
+        >
+          Topics in study order
+        </h2>
+        <ol className="space-y-3">
+          {c.topics.map((t, i) => {
+            const empty = t.modules.filter((m) => m.questionCount === 0).length;
+            return (
+              <li key={t.id}>
+                <details className="group rounded-[var(--radius-card)] border border-border bg-surface shadow-[var(--shadow)]">
+                  <summary className="flex min-h-14 cursor-pointer list-none flex-wrap items-center gap-x-4 gap-y-2 rounded-[var(--radius-card)] px-5 py-4 [&::-webkit-details-marker]:hidden">
+                    <ChevronRight
+                      aria-hidden
+                      className="size-5 shrink-0 text-ink-3 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+                    />
+                    <span
+                      className="tabular grid size-8 shrink-0 place-items-center rounded-lg bg-surface-2 text-sm font-bold text-ink-2"
+                      aria-hidden
+                    >
+                      {i + 1}
+                    </span>
+                    <span className="min-w-0 flex-1 basis-56">
+                      <span className="block text-lg font-semibold tracking-tight text-ink">
+                        <span className="sr-only">Topic {i + 1}: </span>
+                        {t.name}
+                      </span>
+                      <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-2">
+                        <Badge tone="brand">{t.code}</Badge>
+                        <span className="flex items-center gap-2">
+                          Exam weight {weightLabel(t.weightMin, t.weightMax)}
+                          <span
+                            aria-hidden
+                            className="relative inline-block h-1.5 w-20 rounded-full bg-[var(--meter-track)]"
+                          >
+                            <span
+                              className="absolute inset-y-0 rounded-full bg-gradient-to-r from-[var(--meter-from)] to-[var(--meter-to)]"
+                              style={{
+                                left: `${(t.weightMin / 20) * 100}%`,
+                                width: `${((t.weightMax - t.weightMin) / 20) * 100}%`,
+                              }}
+                            />
+                          </span>
+                        </span>
+                      </span>
+                    </span>
+                    <span className="flex flex-wrap items-center gap-2 text-sm">
+                      <Badge>{plural(t.studyWeeks, "week")}</Badge>
+                      <Badge>{plural(t.modules.length, "module")}</Badge>
+                      <Badge
+                        tone={empty === t.modules.length ? "warn" : "neutral"}
+                      >
+                        {plural(t.questionCount, "question")}
+                      </Badge>
+                    </span>
+                  </summary>
+                  <div className="border-t border-border p-3 sm:p-4">
+                    <TableWrap label={`${t.name} modules`}>
+                      <table className="w-full">
+                        <caption className="sr-only">
+                          Modules in {t.name}
+                        </caption>
+                        <thead className="border-b border-border">
+                          <tr>
+                            <th scope="col" className={`${th} w-16`}>
+                              No.
+                            </th>
+                            <th scope="col" className={th}>
+                              Module
+                            </th>
+                            <th scope="col" className={th}>
+                              Slug
+                            </th>
+                            <th scope="col" className={`${th} text-right`}>
+                              Questions
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {t.modules.map((m) => (
+                            <tr key={m.id}>
+                              <td className={`${td} tabular text-ink-2`}>
+                                {m.number}
+                              </td>
+                              <th
+                                scope="row"
+                                className={`${td} min-w-56 text-left font-medium`}
+                              >
+                                {m.title}
+                              </th>
+                              <td
+                                className={`${td} whitespace-nowrap font-mono text-xs text-ink-2`}
+                              >
+                                {m.slug}
+                              </td>
+                              <td className={`${td} tabular text-right`}>
+                                {m.questionCount === 0 ? (
+                                  <span className="text-ink-2">None</span>
+                                ) : (
+                                  m.questionCount
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </TableWrap>
+                  </div>
+                </details>
+              </li>
+            );
+          })}
+        </ol>
+      </section>
     </>
   );
 }

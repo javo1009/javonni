@@ -1,20 +1,29 @@
-import { AppShell } from "@/components/shell/app-shell";
-import type { NavItem } from "@/components/shell/nav-links";
-import { getCurriculumOrNull, teacherContext } from "@/server/context";
+import type { ReactNode } from "react";
+import { AppShell, TabNav, type NavItem } from "@/components/shell/app-shell";
+import { requireRole } from "@/server/dal";
 
 const NAV: NavItem[] = [
-  { href: "/teacher", label: "Cockpit", icon: "cockpit", exact: true },
-  { href: "/teacher/classes", label: "Classes", icon: "classes" },
-  { href: "/teacher/homework", label: "Homework", icon: "homework" },
-  { href: "/teacher/questions", label: "Questions", icon: "questions" },
+  { href: "/teacher", label: "Class overview", exact: true },
+  { href: "/teacher/homework", label: "Homework" },
+  { href: "/teacher/questions", label: "Question bank" },
+  { href: "/teacher/classes", label: "Classes" },
 ];
 
-export default async function TeacherLayout({ children }: { children: React.ReactNode }) {
-  const { user } = await teacherContext();
-  const c = await getCurriculumOrNull();
+export default async function TeacherLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  const user = await requireRole("teacher", "admin");
   return (
-    <AppShell nav={NAV} user={user} areaLabel="Teach" sampleCurriculum={c?.version.isSample ?? false}>
-      {children}
+    <AppShell user={user} areaLabel="Teacher · CFA® Level I study tracker">
+      <div className="pt-0">
+        <TabNav
+          items={NAV}
+          label="Teacher · CFA® Level I study tracker sections"
+        />
+        {children}
+      </div>
     </AppShell>
   );
 }

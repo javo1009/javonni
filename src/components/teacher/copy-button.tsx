@@ -1,29 +1,76 @@
 "use client";
 
-import { Check, Copy } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { buttonClass } from "@/components/ui";
 
-/** Copies text to the clipboard and announces the result politely. */
-export function CopyButton({ value, label, className }: { value: string; label: string; className?: string }) {
-  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
-  async function copy() {
+async function writeClipboard(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // Fallback for insecure origins or denied permissions.
     try {
-      await navigator.clipboard.writeText(value);
-      setState("copied");
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
     } catch {
-      setState("failed");
+      return false;
     }
-    setTimeout(() => setState("idle"), 2000);
   }
+}
+
+/** Copies `text` and confirms in place (and to screen readers). `text` may be a function for values only known in the browser. */
+export function CopyButton({
+  text,
+  children = "Copy",
+  variant = "secondary",
+  size = "sm",
+  className,
+  ...props
+}: {
+  text: string | (() => string);
+  children?: string;
+  variant?: "primary" | "secondary" | "ghost";
+  size?: "sm" | "md";
+} & Omit<ComponentProps<"button">, "onClick" | "children">) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  async function copy() {
+    const ok = await writeClipboard(typeof text === "function" ? text() : text);
+    setState(ok ? "copied" : "failed");
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setState("idle"), 2200);
+  }
+
   return (
     <>
-      <button type="button" onClick={copy} className={buttonClass("secondary", "sm", className)} aria-label={label}>
-        {state === "copied" ? <Check aria-hidden className="size-4" /> : <Copy aria-hidden className="size-4" />}
-        {state === "copied" ? "Copied" : "Copy"}
+      <button
+        type="button"
+        onClick={copy}
+        className={buttonClass(variant, size, className)}
+        {...props}
+      >
+        {state === "copied"
+          ? "Copied ✓"
+          : state === "failed"
+            ? "Copy failed"
+            : children}
       </button>
-      <span role="status" aria-live="polite" className="sr-only">
-        {state === "copied" ? "Copied to clipboard" : state === "failed" ? "Couldn't copy. Select the text and copy it manually." : ""}
+      <span role="status" className="sr-only">
+        {state === "copied"
+          ? "Copied to clipboard"
+          : state === "failed"
+            ? "Could not copy. Select the text and copy it manually."
+            : ""}
       </span>
     </>
   );

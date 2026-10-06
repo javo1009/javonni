@@ -1,5 +1,12 @@
 import { parseDate, type ISODate } from "@/domain/dates";
-export { formatMinutes } from "@/domain/assessment";
+
+/** 95 -> "1 h 35 min" */
+export function formatMinutes(m: number): string {
+  const h = Math.floor(m / 60);
+  const r = Math.round(m % 60);
+  if (h === 0) return `${r} min`;
+  return r === 0 ? `${h} h` : `${h} h ${r} min`;
+}
 
 const dayFmt = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 const longFmt = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });

@@ -6,13 +6,16 @@ export async function login(page: Page, email: string, password = DEMO_PASSWORD)
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("button", { name: /sign in/i }).click();
   await expect(page).not.toHaveURL(/\/login/);
 }
 
 export async function logout(page: Page) {
-  await page.locator('button:has-text("Sign out"):visible').first().click();
-  await expect(page).toHaveURL(/\/login/);
+  await page.getByRole("button", { name: /sign out/i }).click();
+  await expect(page).toHaveURL(/\/login|\/$/);
 }
 
-export const unique = (prefix: string) => `${prefix}-${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`;
+/** A due date a few days ahead in the form's <input type=date> format. */
+export function futureDate(days = 3) {
+  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+}

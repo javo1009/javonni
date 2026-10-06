@@ -1,120 +1,146 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Banner, ButtonLink, Card, CardBody, EmptyState, PageHeader, TableWrap, td, th } from "@/components/ui";
-import { JoinCode } from "@/components/teacher/join-code";
-import { AlertBadge } from "@/components/teacher/labels";
-import { formatShortDate, pct, plural } from "@/lib/format";
+import { notFound } from "next/navigation";
+import {
+  ButtonLink,
+  Card,
+  CardBody,
+  CardHeader,
+  EmptyState,
+  PageHeader,
+  TableWrap,
+  td,
+  th,
+} from "@/components/ui";
+import { ClassSettingsForm } from "@/components/teacher/class-forms";
+import { JoinCard } from "@/components/teacher/join-card";
+import { addDays } from "@/domain/dates";
+import { examCountdown, relativeDay } from "@/lib/class-roster";
+import { formatDay, plural } from "@/lib/format";
 import { teacherContext } from "@/server/context";
-import { assertClassAccess, getClassOverview } from "@/services/classes";
-import { homeworkStats } from "@/services/homework";
-import { orNotFound } from "../../_lib/guard";
+import { getClassOverview } from "@/services/classes";
+import { MAX_EXAM_DATE, MIN_EXAM_DATE } from "@/services/tracker";
+import { ForbiddenError, NotFoundError } from "@/services/types";
 
-export const metadata: Metadata = { title: "Class roster" };
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export default async function ClassPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ created?: string }> }) {
-  const [{ id }, { created }] = await Promise.all([params, searchParams]);
+export const metadata: Metadata = { title: "Class settings" };
+
+export default async function ClassPage({
+  params,
+}: PageProps<"/teacher/classes/[id]">) {
+  const { id } = await params;
+  if (!UUID.test(id)) notFound();
   const { actor, db, today, now } = await teacherContext();
-  const overview = await orNotFound(id, async (classId) => {
-    await assertClassAccess(db, actor, classId);
-    const hw = await homeworkStats(db, classId, new Date(now));
-    return getClassOverview(db, actor, classId, today, hw, now);
-  });
-  const { cls, students, kpis } = overview;
+  // The overview also carries each student's last-active date, so the roster needs no second query.
+  const overview = await getClassOverview(db, actor, id, today, now).catch(
+    (e) => {
+      if (e instanceof NotFoundError || e instanceof ForbiddenError) notFound();
+      throw e;
+    },
+  );
+  const { cls, students } = overview;
+  const exam = examCountdown(cls.examDate, today);
+  const minExam = [MIN_EXAM_DATE, addDays(today, 7)].sort().pop()!;
 
   return (
     <>
       <PageHeader
-        eyebrow={
-          <Link href="/teacher/classes" className="hover:underline">
-            ← Classes
-          </Link>
-        }
+        eyebrow="TEACHER · CLASS"
         title={cls.name}
-        description={`${plural(kpis.total, "student")}${cls.examDate ? ` · exam ${formatShortDate(cls.examDate)}` : ""}`}
+        description={`${exam.date ? `Exam ${formatDay(exam.date)} ${exam.date.slice(0, 4)}, ${exam.text}` : exam.text} · ${plural(students.length, "student")}`}
         actions={
           <>
-            <ButtonLink href={`/teacher?class=${cls.id}`} variant="secondary">
-              Cockpit
+            <ButtonLink href={`/teacher?class=${cls.id}`} variant="primary">
+              Class overview
             </ButtonLink>
-            <ButtonLink href={`/teacher/homework/new?class=${cls.id}`}>New homework</ButtonLink>
+            <ButtonLink href="/teacher/classes" variant="secondary">
+              All classes
+            </ButtonLink>
           </>
         }
       />
-      {created && (
-        <div className="mb-6">
-          <Banner tone="good" title="Class created">
-            Share the join code or sign-up link below with your students.
-          </Banner>
+      <div className="grid gap-6 pb-12 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:items-start">
+        <ClassSettingsForm
+          classId={cls.id}
+          initial={{
+            name: cls.name,
+            examDate: cls.examDate,
+            planStart: cls.planStart,
+            weeklyTargetHours: cls.weeklyTargetHours,
+          }}
+          studentCount={students.length}
+          minExam={minExam}
+          maxExam={MAX_EXAM_DATE}
+        />
+        <JoinCard joinCode={cls.joinCode} />
+        <div className="lg:col-span-2">
+          <Card aria-labelledby="roster-h">
+            <CardHeader
+              id="roster-h"
+              title="Roster"
+              subtitle={
+                students.length
+                  ? `${plural(students.length, "student")} enrolled.`
+                  : undefined
+              }
+            />
+            <CardBody>
+              {students.length === 0 ? (
+                <EmptyState title="Nobody has joined yet">
+                  Share the join code or sign-up link above. Students appear
+                  here as soon as they register.
+                </EmptyState>
+              ) : (
+                <TableWrap label="Class roster">
+                  <table className="w-full min-w-[36rem] border-collapse">
+                    <thead className="border-b border-border bg-surface-2">
+                      <tr>
+                        <th scope="col" className={th}>
+                          Student
+                        </th>
+                        <th scope="col" className={th}>
+                          Email
+                        </th>
+                        <th scope="col" className={th}>
+                          Joined
+                        </th>
+                        <th scope="col" className={th}>
+                          Last active
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {students.map((s) => (
+                        <tr key={s.id} className="hover:bg-surface-2/60">
+                          <th
+                            scope="row"
+                            className={`${td} text-left font-normal`}
+                          >
+                            <Link
+                              href={`/teacher/students/${s.id}`}
+                              className="font-semibold text-link hover:underline"
+                            >
+                              {s.name}
+                            </Link>
+                          </th>
+                          <td className={`${td} text-ink-2`}>{s.email}</td>
+                          <td className={`${td} whitespace-nowrap`}>
+                            {formatDay(s.joinedOn)}
+                          </td>
+                          <td className={`${td} whitespace-nowrap`}>
+                            {relativeDay(s.lastActive, today)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </TableWrap>
+              )}
+            </CardBody>
+          </Card>
         </div>
-      )}
-      <Card className="mb-6">
-        <CardBody className="pt-4">
-          <JoinCode code={cls.joinCode} />
-        </CardBody>
-      </Card>
-
-      {students.length === 0 ? (
-        <EmptyState title="No students yet">Students who register with the join code appear here, with their readiness and activity.</EmptyState>
-      ) : (
-        <TableWrap label="Class roster">
-          <table className="relative w-full min-w-[52rem]">
-            <caption className="sr-only">Roster for {cls.name}</caption>
-            <thead className="border-b border-border">
-              <tr>
-                <th scope="col" className={th}>Student</th>
-                <th scope="col" className={th}>Readiness</th>
-                <th scope="col" className={`${th} text-right`}>Coverage</th>
-                <th scope="col" className={`${th} text-right`}>Hours (7 d)</th>
-                <th scope="col" className={th}>Last active</th>
-                <th scope="col" className={th}>Alerts</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {students.map((s) => (
-                <tr key={s.id}>
-                  <th scope="row" className={`${td} text-left font-medium`}>
-                    <Link href={`/teacher/students/${s.id}`} className="text-ink hover:underline">
-                      {s.name}
-                    </Link>
-                    <span className="block text-xs font-normal text-ink-2">{s.email}</span>
-                  </th>
-                  <td className={`${td} tabular`}>
-                    {s.readiness.insufficient ? (
-                      <span className="text-ink-3">Not enough data</span>
-                    ) : (
-                      <>
-                        {s.readiness.low}–{s.readiness.high}
-                        <span className="ml-1 text-xs text-ink-2">({s.readiness.evidenceLabel} evidence)</span>
-                      </>
-                    )}
-                  </td>
-                  <td className={`${td} tabular text-right`}>
-                    {pct(s.snapshot.coverage.coveragePct)}
-                    <span className="block text-xs text-ink-2">
-                      {s.snapshot.coverage.covered} / {s.snapshot.coverage.total} LOS
-                    </span>
-                  </td>
-                  <td className={`${td} tabular text-right`}>{s.hours7d}</td>
-                  <td className={td}>{s.lastActive ? formatShortDate(s.lastActive) : <span className="text-ink-3">Never</span>}</td>
-                  <td className={td}>
-                    {s.alerts.length === 0 ? (
-                      <span className="text-sm text-ink-2">None</span>
-                    ) : (
-                      <span className="flex flex-wrap gap-1">
-                        {s.alerts.map((a) => (
-                          <span key={a.kind} title={a.evidence}>
-                            <AlertBadge kind={a.kind} severity={a.severity} />
-                          </span>
-                        ))}
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableWrap>
-      )}
+      </div>
     </>
   );
 }

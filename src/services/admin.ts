@@ -1,533 +1,1027 @@
-// Admin-only operations: curriculum import and versions, coverage, staff accounts.
+// Admin-only operations: platform overview, accounts, curriculum view, question coverage and CSV import/export.
 // Every function takes the authenticated actor and refuses anyone but an admin.
-import { randomBytes } from "node:crypto";
-import { and, asc, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { writeCurriculum } from "@/db/curriculum-writer";
-import { auditLog, classes, curriculumVersions, enrollments, los, modules, planItems, questions, studyPlans, topics, users } from "@/db/schema";
+
 import {
-  diffCurricula,
-  draftStats,
-  parseCurriculumCsv,
-  type CsvIssue,
-  type CurriculumDiff,
-  type CurriculumShape,
-  type DraftStats,
-} from "@/domain/curriculum-csv";
-import { getActiveCurriculum, questionCountsByLos, type Curriculum } from "./curriculum";
-import { ForbiddenError, NotFoundError, ValidationError, type Actor, type Db, type Role } from "./types";
-import { createUser, type PublicUser } from "./users";
+  and,
+  asc,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
+import {
+  assignments,
+  auditLog,
+  classes,
+  enrollments,
+  files,
+  curriculumVersions,
+  modules,
+  questions,
+  topics,
+  users,
+} from "@/db/schema";
+import {
+  QUESTION_CSV,
+  buildModuleIndex,
+  duplicateKey,
+  markDuplicates,
+  parseQuestionCsv,
+  summarise,
+  toCsv,
+  type AnalysedRow,
+  type ModuleIndex,
+} from "@/domain/question-csv";
+import { hashPassword } from "@/lib/password";
+import { FILE_LIMITS } from "./files";
+import {
+  ForbiddenError,
+  NotFoundError,
+  ValidationError,
+  type Actor,
+  type Db,
+  type Role,
+} from "./types";
+import { createUser } from "./users";
 
-/** Minimum published questions per objective before it counts as covered (PLAN §1.1 G1, MVP). */
-export const MIN_QUESTIONS_PER_LOS = 3;
-export const MIN_PASSWORD_LENGTH = 10;
-/** Upper bound on pasted/uploaded CSV size (server actions accept ~1 MB bodies by default). */
-export const MAX_CSV_BYTES = 900_000;
+/** Temporary passwords (and resets) must be at least this long. */
+export const MIN_PASSWORD_LENGTH = 12;
+export const MAX_PASSWORD_LENGTH = 128;
+/** A module with fewer published questions than this is flagged "needs more". */
+export const MIN_QUESTIONS_PER_MODULE = 3;
+/** Accounts seeded by `npm run db:seed` use this domain. */
+export const DEMO_EMAIL_SUFFIX = "@ascent.demo";
+export const USERS_PAGE_SIZE = 20;
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-/** Serialises activations so two concurrent requests can't leave two active versions. */
-const ACTIVATE_LOCK = sql`select pg_advisory_xact_lock(hashtext('ascent.curriculum.activate'))`;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ROLES: Role[] = ["student", "teacher", "admin"];
+
+/** Serialise account changes so two admins can't each disable "the other" admin. */
+const USERS_LOCK = sql`select pg_advisory_xact_lock(hashtext('ascent.admin.users'))`;
+/** Serialise question imports so two uploads of the same file can't both insert. */
+const IMPORT_LOCK = sql`select pg_advisory_xact_lock(hashtext('ascent.admin.import'))`;
 
 export function assertAdmin(actor: Actor): void {
-  if (actor.role !== "admin") throw new ForbiddenError("Only admins can do that.");
+  if (actor.role !== "admin")
+    throw new ForbiddenError("Only admins can do that.");
 }
 
-async function audit(db: Db, actor: Actor | null, action: string, entity: string, entityId: string | null, meta: Record<string, unknown> = {}) {
-  await db.insert(auditLog).values({ actorId: actor?.id ?? null, action, entity, entityId, meta });
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+async function audit(
+  db: Db | Tx,
+  actor: Actor,
+  action: string,
+  entity: string,
+  entityId: string | null,
+  meta: Record<string, unknown> = {},
+) {
+  await db
+    .insert(auditLog)
+    .values({ actorId: actor.id, action, entity, entityId, meta });
 }
 
-/** A loaded curriculum in the shape the CSV diff understands. */
-export function curriculumShape(c: Curriculum): CurriculumShape & { topics: (CurriculumShape["topics"][number] & { difficulty: number; spread: boolean })[] } {
-  const losById = new Map(c.los.map((l) => [l.id, l]));
-  return {
-    topics: c.topics.map((t) => ({
-      code: t.code,
-      name: t.name,
-      weightMin: t.weightMin,
-      weightMax: t.weightMax,
-      difficulty: t.difficulty,
-      spread: t.spread,
-      modules: c.modules
-        .filter((m) => m.topicId === t.id)
-        .map((m) => ({
-          title: m.title,
-          estMinutes: m.estMinutes,
-          los: m.losIds.map((id) => {
-            const l = losById.get(id)!;
-            return { code: l.code, commandWord: l.commandWord, text: l.text, importance: l.importance };
-          }),
-        })),
-    })),
+// ------------------------------------------------------- active curriculum
+
+type ActiveRows = {
+  version: {
+    id: string;
+    name: string;
+    year: number;
+    isSample: boolean;
+    sourceNote: string | null;
+    createdAt: Date;
   };
-}
+  topics: {
+    id: string;
+    code: string;
+    name: string;
+    weightMin: number;
+    weightMax: number;
+    studyWeeks: number;
+    order: number;
+  }[];
+  modules: {
+    id: string;
+    topicId: string;
+    number: number;
+    title: string;
+    slug: string;
+  }[];
+};
 
-async function activeCurriculumOrNull(db: Db): Promise<Curriculum | null> {
-  try {
-    return await getActiveCurriculum(db);
-  } catch (e) {
-    if (e instanceof NotFoundError) return null;
-    throw e;
-  }
-}
-
-// --------------------------------------------------------------- overview
-
-export async function adminOverview(db: Db, actor: Actor) {
-  assertAdmin(actor);
-  const roleRows = await db
-    .select({ role: users.role, n: count() })
-    .from(users)
-    .where(isNull(users.disabledAt))
-    .groupBy(users.role);
-  const byRole = Object.fromEntries(roleRows.map((r) => [r.role, r.n])) as Partial<Record<Role, number>>;
-  const [[cls], qRows, [versions], [plans]] = await Promise.all([
-    db.select({ n: count() }).from(classes).where(eq(classes.archived, false)),
-    db.select({ status: questions.status, n: count() }).from(questions).groupBy(questions.status),
-    db.select({ n: count() }).from(curriculumVersions),
-    db.select({ n: count() }).from(studyPlans).where(eq(studyPlans.active, true)),
-  ]);
-  const q = Object.fromEntries(qRows.map((r) => [r.status, r.n])) as Partial<Record<"draft" | "review" | "published", number>>;
-  const c = await activeCurriculumOrNull(db);
-  return {
-    students: byRole.student ?? 0,
-    teachers: byRole.teacher ?? 0,
-    admins: byRole.admin ?? 0,
-    classes: cls.n,
-    questions: { published: q.published ?? 0, unpublished: (q.draft ?? 0) + (q.review ?? 0) },
-    versions: versions.n,
-    activePlans: plans.n,
-    active: c
-      ? {
-          id: c.version.id,
-          name: c.version.name,
-          year: c.version.year,
-          isSample: c.version.isSample,
-          sourceNote: c.version.sourceNote,
-          topics: c.topics.length,
-          modules: c.modules.length,
-          los: c.los.length,
-        }
-      : null,
-  };
-}
-
-export async function recentAudit(db: Db, actor: Actor, limit = 10) {
-  assertAdmin(actor);
-  return db
+/** The active version with topic codes and module slugs (which the tracker's Curriculum type omits). Null when none is active. */
+async function loadActive(db: Db | Tx): Promise<ActiveRows | null> {
+  const [version] = await db
     .select({
-      id: auditLog.id,
-      action: auditLog.action,
-      entity: auditLog.entity,
-      entityId: auditLog.entityId,
-      meta: auditLog.meta,
-      createdAt: auditLog.createdAt,
-      actorName: users.name,
+      id: curriculumVersions.id,
+      name: curriculumVersions.name,
+      year: curriculumVersions.year,
+      isSample: curriculumVersions.isSample,
+      sourceNote: curriculumVersions.sourceNote,
+      createdAt: curriculumVersions.createdAt,
     })
-    .from(auditLog)
-    .leftJoin(users, eq(users.id, auditLog.actorId))
-    .orderBy(desc(auditLog.createdAt))
-    .limit(Math.min(Math.max(limit, 1), 100));
-}
-
-// ------------------------------------------------------------- curriculum
-
-export type ImportPreview = {
-  errors: CsvIssue[];
-  warnings: CsvIssue[];
-  stats: DraftStats;
-  topics: { code: string; name: string; weightMin: number; weightMax: number; modules: number; los: number }[];
-  /** Null when there is no active version to compare against. */
-  diff: CurriculumDiff | null;
-  against: { id: string; name: string; isSample: boolean } | null;
-};
-
-function checkCsvSize(csvText: string) {
-  if (Buffer.byteLength(csvText, "utf8") > MAX_CSV_BYTES) {
-    throw new ValidationError(`That file is larger than ${Math.round(MAX_CSV_BYTES / 1000)} KB. Split it or remove unused columns.`);
-  }
-}
-
-/** Parse a CSV and compare it with the active version. Writes nothing. */
-export async function previewImport(db: Db, actor: Actor, csvText: string): Promise<ImportPreview> {
-  assertAdmin(actor);
-  checkCsvSize(csvText);
-  const { draft, errors, warnings } = parseCurriculumCsv(csvText);
-  const active = await activeCurriculumOrNull(db);
+    .from(curriculumVersions)
+    .where(eq(curriculumVersions.isActive, true))
+    .limit(1);
+  if (!version) return null;
+  const topicRows = await db
+    .select({
+      id: topics.id,
+      code: topics.code,
+      name: topics.name,
+      weightMin: topics.weightMin,
+      weightMax: topics.weightMax,
+      studyWeeks: topics.studyWeeks,
+      order: topics.order,
+    })
+    .from(topics)
+    .where(eq(topics.versionId, version.id))
+    .orderBy(asc(topics.order));
+  const moduleRows = topicRows.length
+    ? await db
+        .select({
+          id: modules.id,
+          topicId: modules.topicId,
+          number: modules.number,
+          title: modules.title,
+          slug: modules.slug,
+        })
+        .from(modules)
+        .where(
+          inArray(
+            modules.topicId,
+            topicRows.map((t) => t.id),
+          ),
+        )
+        .orderBy(asc(modules.number))
+    : [];
+  const codeById = new Map(topicRows.map((t) => [t.id, t.code]));
   return {
-    errors,
-    warnings,
-    stats: draftStats(draft),
-    topics: draft.topics.map((t) => ({
-      code: t.code,
-      name: t.name,
-      weightMin: t.weightMin,
-      weightMax: t.weightMax,
-      modules: t.modules.length,
-      los: t.modules.reduce((s, m) => s + m.los.length, 0),
+    version,
+    topics: topicRows,
+    modules: moduleRows.map((m) => ({
+      ...m,
+      slug:
+        m.slug ??
+        `${codeById.get(m.topicId)!.toLowerCase()}-${String(m.number).padStart(2, "0")}`,
     })),
-    diff: active ? diffCurricula(curriculumShape(active), draft) : null,
-    against: active ? { id: active.version.id, name: active.version.name, isSample: active.version.isSample } : null,
   };
 }
 
-export type ImportOptions = { activate: boolean; name: string; year: number; sourceNote?: string | null };
-
-function validateImportOptions(o: ImportOptions) {
-  const name = o.name?.trim() ?? "";
-  if (name.length < 3 || name.length > 120) throw new ValidationError("Give the version a name of 3 to 120 characters.");
-  if (!Number.isInteger(o.year) || o.year < 2000 || o.year > 2100) throw new ValidationError("Enter the curriculum year, for example 2027.");
-  const note = o.sourceNote?.trim() || null;
-  if (note && note.length > 1000) throw new ValidationError("Keep the source note under 1000 characters.");
-  return { name, year: o.year, sourceNote: note };
+function moduleIndexOf(active: ActiveRows): ModuleIndex {
+  const topicById = new Map(active.topics.map((t) => [t.id, t]));
+  return buildModuleIndex(
+    active.modules.map((m) => {
+      const t = topicById.get(m.topicId)!;
+      return {
+        id: m.id,
+        slug: m.slug,
+        number: m.number,
+        topicCode: t.code,
+        topicName: t.name,
+      };
+    }),
+  );
 }
 
-/**
- * Create a new curriculum version from CSV. Refuses files with errors. With
- * `activate`, the new version becomes the one new plans use; existing student
- * plans keep pointing at the version they were built from.
- */
-export async function importCurriculum(db: Db, actor: Actor, csvText: string, opts: ImportOptions) {
-  assertAdmin(actor);
-  return doImport(db, actor, csvText, opts, "admin");
-}
+type CountRow = { moduleId: string; difficulty: number; n: number };
 
-/**
- * The same import for trusted operator tooling (scripts/import-curriculum.ts),
- * which runs with direct database credentials and no signed-in user. The audit
- * entry has no actor and records `source: "cli"`. Never call this from a request path.
- */
-export async function importCurriculumFromCli(db: Db, csvText: string, opts: ImportOptions) {
-  return doImport(db, null, csvText, opts, "cli");
-}
-
-async function doImport(db: Db, actor: Actor | null, csvText: string, opts: ImportOptions, source: "admin" | "cli") {
-  checkCsvSize(csvText);
-  const meta = validateImportOptions(opts);
-  const { draft, errors, warnings } = parseCurriculumCsv(csvText, { name: meta.name, year: meta.year, sourceNote: meta.sourceNote });
-  if (errors.length > 0) {
-    throw new ValidationError(`The CSV has ${errors.length === 1 ? "1 error" : `${errors.length} errors`}. Fix them and preview again before importing.`);
-  }
-  const stats = draftStats(draft);
-  if (stats.los === 0) throw new ValidationError("The CSV has no objectives.");
-
-  const previous = await activeCurriculumOrNull(db);
-  const diff = previous ? diffCurricula(curriculumShape(previous), draft) : null;
-
-  return db.transaction(async (tx) => {
-    if (opts.activate) await tx.execute(ACTIVATE_LOCK);
-    // writeCurriculum opens its own transaction; inside ours it becomes a savepoint,
-    // so the version, its rows and the audit entry commit together.
-    const written = await writeCurriculum(tx as unknown as Db, draft, { activate: opts.activate });
-    await audit(tx as unknown as Db, actor, "curriculum.import", "curriculum_version", written.versionId, {
-      name: meta.name,
-      year: meta.year,
-      activated: opts.activate,
-      source,
-      ...stats,
-      warnings: warnings.length,
-      previousActiveId: previous?.version.id ?? null,
-      diff: diff && {
-        added: diff.addedLos.length,
-        removed: diff.removedLos.length,
-        reworded: diff.rewordedLos.length,
-        moved: diff.movedLos.length,
-      },
-    });
-    return { versionId: written.versionId, activated: opts.activate, stats, warnings: warnings.length };
-  });
-}
-
-export type VersionRow = {
-  id: string;
-  name: string;
-  level: string;
-  year: number;
-  isSample: boolean;
-  isActive: boolean;
-  sourceNote: string | null;
-  createdAt: Date;
-  topics: number;
-  los: number;
-  activePlans: number;
-};
-
-export async function listVersions(db: Db, actor: Actor): Promise<VersionRow[]> {
-  assertAdmin(actor);
-  const versions = await db.select().from(curriculumVersions).orderBy(desc(curriculumVersions.isActive), desc(curriculumVersions.createdAt));
-  if (versions.length === 0) return [];
-  const ids = versions.map((v) => v.id);
-  const [topicCounts, losCounts, planCounts] = await Promise.all([
-    db.select({ id: topics.versionId, n: count() }).from(topics).where(inArray(topics.versionId, ids)).groupBy(topics.versionId),
-    db
-      .select({ id: topics.versionId, n: count() })
-      .from(los)
-      .innerJoin(modules, eq(modules.id, los.moduleId))
-      .innerJoin(topics, eq(topics.id, modules.topicId))
-      .where(inArray(topics.versionId, ids))
-      .groupBy(topics.versionId),
-    db
-      .select({ id: studyPlans.versionId, n: count() })
-      .from(studyPlans)
-      .where(and(inArray(studyPlans.versionId, ids), eq(studyPlans.active, true)))
-      .groupBy(studyPlans.versionId),
-  ]);
-  const m = (rows: { id: string; n: number }[]) => new Map(rows.map((r) => [r.id, r.n]));
-  const [tc, lc, pc] = [m(topicCounts), m(losCounts), m(planCounts)];
-  return versions.map((v) => ({
-    id: v.id,
-    name: v.name,
-    level: v.level,
-    year: v.year,
-    isSample: v.isSample,
-    isActive: v.isActive,
-    sourceNote: v.sourceNote,
-    createdAt: v.createdAt,
-    topics: tc.get(v.id) ?? 0,
-    los: lc.get(v.id) ?? 0,
-    activePlans: pc.get(v.id) ?? 0,
+async function publishedCounts(db: Db | Tx): Promise<CountRow[]> {
+  const rows = await db
+    .select({
+      moduleId: questions.moduleId,
+      difficulty: questions.difficulty,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(questions)
+    .where(
+      and(eq(questions.status, "published"), isNotNull(questions.moduleId)),
+    )
+    .groupBy(questions.moduleId, questions.difficulty);
+  return rows.map((r) => ({
+    moduleId: r.moduleId!,
+    difficulty: r.difficulty,
+    n: r.n,
   }));
 }
 
-/** Make a version the one new plans are built from. Existing plans keep their own version. */
-export async function activateVersion(db: Db, actor: Actor, versionId: string) {
+// ---------------------------------------------------------------- overview
+
+export type AdminOverview = {
+  users: Record<Role, { active: number; disabled: number }>;
+  demoAccounts: number;
+  classes: { active: number; archived: number };
+  studentsEnrolled: number;
+  assignments: { total: number; assigned: number; draft: number };
+  files: {
+    count: number;
+    bytes: number;
+    quotaPerUser: number;
+    heaviest: { name: string; bytes: number } | null;
+  };
+  questions: {
+    published: number;
+    unpublished: number;
+    bySource: { source: string; n: number }[];
+  };
+  modulesWithoutQuestions: {
+    count: number;
+    total: number;
+    examples: { title: string; topic: string; number: number }[];
+  };
+  curriculum: {
+    name: string;
+    year: number;
+    isSample: boolean;
+    topics: number;
+    modules: number;
+  } | null;
+  latest: { accountCreated: Date | null; questionAdded: Date | null };
+  recentActivity: {
+    id: string;
+    action: string;
+    entity: string;
+    actorName: string | null;
+    createdAt: Date;
+    meta: Record<string, unknown>;
+  }[];
+};
+
+export async function adminOverview(
+  db: Db,
+  actor: Actor,
+): Promise<AdminOverview> {
   assertAdmin(actor);
-  if (!UUID_RE.test(versionId)) throw new NotFoundError("That curriculum version doesn't exist.");
+  const active = await loadActive(db);
+
+  const [
+    roleRows,
+    [demo],
+    [cls],
+    [enr],
+    [asg],
+    [fileAgg],
+    heaviest,
+    qSource,
+    [qStatus],
+    [lastUser],
+    [lastQuestion],
+    counts,
+    recent,
+  ] = await Promise.all([
+    db
+      .select({
+        role: users.role,
+        active: sql<number>`count(*) filter (where ${users.disabledAt} is null)::int`,
+        disabled: sql<number>`count(*) filter (where ${users.disabledAt} is not null)::int`,
+      })
+      .from(users)
+      .groupBy(users.role),
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(users)
+      .where(ilike(users.email, `%${DEMO_EMAIL_SUFFIX}`)),
+    db
+      .select({
+        active: sql<number>`count(*) filter (where not ${classes.archived})::int`,
+        archived: sql<number>`count(*) filter (where ${classes.archived})::int`,
+      })
+      .from(classes),
+    db
+      .select({ n: sql<number>`count(distinct ${enrollments.studentId})::int` })
+      .from(enrollments)
+      .innerJoin(
+        classes,
+        and(eq(classes.id, enrollments.classId), eq(classes.archived, false)),
+      ),
+    db
+      .select({
+        total: sql<number>`count(*)::int`,
+        assigned: sql<number>`count(*) filter (where ${assignments.status} = 'assigned')::int`,
+        draft: sql<number>`count(*) filter (where ${assignments.status} = 'draft')::int`,
+      })
+      .from(assignments),
+    db
+      .select({
+        count: sql<number>`count(*)::int`,
+        bytes: sql<number>`coalesce(sum(${files.size}), 0)::float8`,
+      })
+      .from(files),
+    db
+      .select({
+        name: users.name,
+        bytes: sql<number>`sum(${files.size})::float8`,
+      })
+      .from(files)
+      .innerJoin(users, eq(users.id, files.uploaderId))
+      .groupBy(users.id, users.name)
+      .orderBy(desc(sql`sum(${files.size})`))
+      .limit(1),
+    db
+      .select({ source: questions.source, n: sql<number>`count(*)::int` })
+      .from(questions)
+      .where(eq(questions.status, "published"))
+      .groupBy(questions.source)
+      .orderBy(desc(sql`count(*)`)),
+    db
+      .select({
+        unpublished: sql<number>`count(*) filter (where ${questions.status} <> 'published')::int`,
+      })
+      .from(questions),
+    db.select({ at: sql<Date | null>`max(${users.createdAt})` }).from(users),
+    db
+      .select({ at: sql<Date | null>`max(${questions.createdAt})` })
+      .from(questions),
+    publishedCounts(db),
+    db
+      .select({
+        id: auditLog.id,
+        action: auditLog.action,
+        entity: auditLog.entity,
+        meta: auditLog.meta,
+        createdAt: auditLog.createdAt,
+        actorName: users.name,
+      })
+      .from(auditLog)
+      .leftJoin(users, eq(users.id, auditLog.actorId))
+      .orderBy(desc(auditLog.createdAt))
+      .limit(6),
+  ]);
+
+  const byRole = Object.fromEntries(
+    ROLES.map((r) => [r, { active: 0, disabled: 0 }]),
+  ) as Record<Role, { active: number; disabled: number }>;
+  for (const r of roleRows)
+    byRole[r.role] = { active: r.active, disabled: r.disabled };
+
+  const covered = new Set(counts.map((c) => c.moduleId));
+  const topicById = new Map((active?.topics ?? []).map((t) => [t.id, t]));
+  const empty = (active?.modules ?? []).filter((m) => !covered.has(m.id));
+  const rank = new Map((active?.topics ?? []).map((t) => [t.id, t.order]));
+  empty.sort(
+    (a, b) =>
+      rank.get(a.topicId)! - rank.get(b.topicId)! || a.number - b.number,
+  );
+
+  const asDate = (v: unknown) => (v ? new Date(v as string | Date) : null);
+  return {
+    users: byRole,
+    demoAccounts: demo.n,
+    classes: { active: cls.active, archived: cls.archived },
+    studentsEnrolled: enr.n,
+    assignments: { total: asg.total, assigned: asg.assigned, draft: asg.draft },
+    files: {
+      count: fileAgg.count,
+      bytes: Number(fileAgg.bytes),
+      quotaPerUser: FILE_LIMITS.perUserBytes,
+      heaviest: heaviest[0]
+        ? { name: heaviest[0].name, bytes: Number(heaviest[0].bytes) }
+        : null,
+    },
+    questions: {
+      published: qSource.reduce((s, r) => s + r.n, 0),
+      unpublished: qStatus.unpublished,
+      bySource: qSource,
+    },
+    modulesWithoutQuestions: {
+      count: empty.length,
+      total: active?.modules.length ?? 0,
+      examples: empty
+        .slice(0, 8)
+        .map((m) => ({
+          title: m.title,
+          topic: topicById.get(m.topicId)!.name,
+          number: m.number,
+        })),
+    },
+    curriculum: active
+      ? {
+          name: active.version.name,
+          year: active.version.year,
+          isSample: active.version.isSample,
+          topics: active.topics.length,
+          modules: active.modules.length,
+        }
+      : null,
+    latest: {
+      accountCreated: asDate(lastUser.at),
+      questionAdded: asDate(lastQuestion.at),
+    },
+    recentActivity: recent,
+  };
+}
+
+// ------------------------------------------------------------------- users
+
+export type AccountStatus = "active" | "disabled";
+
+export type UserRow = {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  createdAt: Date;
+  disabledAt: Date | null;
+  /** Teachers: classes they run. Students: classes they're in. */
+  classes: number;
+};
+
+export type UserList = {
+  rows: UserRow[];
+  total: number;
+  page: number;
+  pageCount: number;
+  pageSize: number;
+  activeAdmins: number;
+};
+
+const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
+
+export async function listUsers(
+  db: Db,
+  actor: Actor,
+  filter: {
+    q?: string;
+    role?: Role;
+    status?: AccountStatus;
+    page?: number;
+  } = {},
+): Promise<UserList> {
+  assertAdmin(actor);
+  const conds: SQL[] = [];
+  const q = (filter.q ?? "").trim().slice(0, 100);
+  if (q) {
+    const like = `%${escapeLike(q)}%`;
+    conds.push(or(ilike(users.name, like), ilike(users.email, like))!);
+  }
+  if (filter.role && ROLES.includes(filter.role))
+    conds.push(eq(users.role, filter.role));
+  if (filter.status === "active") conds.push(isNull(users.disabledAt));
+  if (filter.status === "disabled") conds.push(isNotNull(users.disabledAt));
+  const where = conds.length ? and(...conds) : undefined;
+
+  const [{ n: total }] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(users)
+    .where(where);
+  const [{ n: activeAdmins }] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(users)
+    .where(and(eq(users.role, "admin"), isNull(users.disabledAt)));
+  const pageCount = Math.max(1, Math.ceil(total / USERS_PAGE_SIZE));
+  const page = Math.min(
+    Math.max(1, Math.floor(filter.page ?? 1) || 1),
+    pageCount,
+  );
+
+  const rows = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+      createdAt: users.createdAt,
+      disabledAt: users.disabledAt,
+      // Literal SQL: Drizzle prints column names unqualified in a single-table select, which would
+      // make these correlated subqueries compare the inner table to itself.
+      classes: sql<number>`case "users"."role"
+        when 'teacher' then (select count(*)::int from "classes" c where c."teacher_id" = "users"."id" and not c."archived")
+        when 'student' then (select count(*)::int from "enrollments" e where e."student_id" = "users"."id")
+        else 0 end`,
+    })
+    .from(users)
+    .where(where)
+    .orderBy(desc(users.createdAt), asc(users.name), asc(users.id))
+    .limit(USERS_PAGE_SIZE)
+    .offset((page - 1) * USERS_PAGE_SIZE);
+  return {
+    rows,
+    total,
+    page,
+    pageCount,
+    pageSize: USERS_PAGE_SIZE,
+    activeAdmins,
+  };
+}
+
+function checkPassword(password: string) {
+  if (password.length < MIN_PASSWORD_LENGTH)
+    throw new ValidationError(
+      `Use a password of at least ${MIN_PASSWORD_LENGTH} characters.`,
+    );
+  if (password.length > MAX_PASSWORD_LENGTH)
+    throw new ValidationError(`Use at most ${MAX_PASSWORD_LENGTH} characters.`);
+}
+
+export async function createAccount(
+  db: Db,
+  actor: Actor,
+  input: { name: string; email: string; role: Role; password: string },
+) {
+  assertAdmin(actor);
+  const name = input.name.trim();
+  const email = input.email.trim().toLowerCase();
+  if (name.length < 2 || name.length > 80)
+    throw new ValidationError("Enter a name of 2 to 80 characters.");
+  if (!EMAIL_RE.test(email) || email.length > 254)
+    throw new ValidationError("Enter a valid email address.");
+  if (!ROLES.includes(input.role)) throw new ValidationError("Pick a role.");
+  checkPassword(input.password);
+  const user = await createUser(db, {
+    name,
+    email,
+    role: input.role,
+    password: input.password,
+  });
+  await audit(db, actor, "user.create", "user", user.id, {
+    role: user.role,
+    email: user.email,
+  });
+  return user;
+}
+
+/**
+ * Enable or disable an account. Refuses to disable yourself or the last active admin
+ * (otherwise nobody could sign in to fix it). A disabled account is rejected on its next request.
+ */
+export async function setUserDisabled(
+  db: Db,
+  actor: Actor,
+  userId: string,
+  disabled: boolean,
+): Promise<{ name: string; disabled: boolean }> {
+  assertAdmin(actor);
+  if (!UUID_RE.test(userId))
+    throw new NotFoundError("That account no longer exists.");
   return db.transaction(async (tx) => {
-    await tx.execute(ACTIVATE_LOCK);
-    const [target] = await tx.select().from(curriculumVersions).where(eq(curriculumVersions.id, versionId)).limit(1);
-    if (!target) throw new NotFoundError("That curriculum version doesn't exist.");
-    if (target.isActive) return { changed: false, name: target.name };
-    const previous = await tx.select({ id: curriculumVersions.id }).from(curriculumVersions).where(eq(curriculumVersions.isActive, true));
-    await tx.update(curriculumVersions).set({ isActive: false }).where(eq(curriculumVersions.isActive, true));
-    await tx.update(curriculumVersions).set({ isActive: true }).where(eq(curriculumVersions.id, versionId));
-    await audit(tx as unknown as Db, actor, "curriculum.activate", "curriculum_version", versionId, {
-      name: target.name,
-      previousActiveIds: previous.map((p) => p.id),
-    });
-    return { changed: true, name: target.name };
+    await tx.execute(USERS_LOCK);
+    const [u] = await tx
+      .select({
+        id: users.id,
+        name: users.name,
+        role: users.role,
+        disabledAt: users.disabledAt,
+      })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    if (!u) throw new NotFoundError("That account no longer exists.");
+    if (disabled) {
+      if (u.id === actor.id)
+        throw new ValidationError("You can't disable your own account.");
+      if (u.role === "admin" && !u.disabledAt) {
+        const [{ n }] = await tx
+          .select({ n: sql<number>`count(*)::int` })
+          .from(users)
+          .where(and(eq(users.role, "admin"), isNull(users.disabledAt)));
+        if (n <= 1)
+          throw new ValidationError(
+            "This is the last active admin. Create or enable another admin first.",
+          );
+      }
+    }
+    if (!!u.disabledAt !== disabled) {
+      await tx
+        .update(users)
+        .set({ disabledAt: disabled ? new Date() : null })
+        .where(eq(users.id, u.id));
+      await audit(
+        tx,
+        actor,
+        disabled ? "user.disable" : "user.enable",
+        "user",
+        u.id,
+        { role: u.role },
+      );
+    }
+    return { name: u.name, disabled };
   });
 }
 
-/** A whole version, for CSV export. */
-export async function getVersionForExport(db: Db, actor: Actor, versionId: string) {
+/** Set a new temporary password. The person should change it after signing in. */
+export async function resetUserPassword(
+  db: Db,
+  actor: Actor,
+  userId: string,
+  newPassword: string,
+): Promise<{ name: string; email: string }> {
   assertAdmin(actor);
-  if (!UUID_RE.test(versionId)) throw new NotFoundError("That curriculum version doesn't exist.");
-  const c = await getActiveCurriculum(db, versionId);
-  return { version: c.version, shape: curriculumShape(c) };
+  if (!UUID_RE.test(userId))
+    throw new NotFoundError("That account no longer exists.");
+  checkPassword(newPassword);
+  const passwordHash = await hashPassword(newPassword);
+  const [u] = await db
+    .update(users)
+    .set({ passwordHash })
+    .where(eq(users.id, userId))
+    .returning({ id: users.id, name: users.name, email: users.email });
+  if (!u) throw new NotFoundError("That account no longer exists.");
+  await audit(db, actor, "user.password_reset", "user", u.id);
+  return { name: u.name, email: u.email };
 }
 
-// --------------------------------------------------------------- coverage
+// -------------------------------------------------------------- curriculum
 
-export type CoverageRow = {
-  losId: string;
-  code: string;
-  text: string;
-  commandWord: string;
-  importance: 1 | 2 | 3;
-  topicId: string;
-  topicCode: string;
-  topicName: string;
-  moduleTitle: string;
-  questions: number;
-  /** Has a read or practice task in at least one active student plan on this version. */
-  inActivePlan: boolean;
-  belowMin: boolean;
-};
-
-export type CoverageReport = {
-  version: { id: string; name: string; isSample: boolean };
-  minQuestions: number;
-  activePlans: number;
-  rows: CoverageRow[];
-  summary: {
-    totalLos: number;
-    covered: number;
-    belowMin: number;
-    zeroQuestions: number;
-    questionsNeeded: number;
-    /** Only meaningful when activePlans > 0. */
-    notInAnyPlan: number;
-    topics: { id: string; code: string; name: string; los: number; belowMin: number; notInAnyPlan: number }[];
+export type CurriculumView = {
+  version: ActiveRows["version"];
+  topics: {
+    id: string;
+    code: string;
+    name: string;
+    weightMin: number;
+    weightMax: number;
+    studyWeeks: number;
+    questionCount: number;
+    modules: {
+      id: string;
+      number: number;
+      title: string;
+      slug: string;
+      questionCount: number;
+    }[];
+  }[];
+  totals: {
+    topics: number;
+    modules: number;
+    studyWeeks: number;
+    questions: number;
   };
 };
 
-export async function coverageReport(db: Db, actor: Actor, opts: { minQuestions?: number } = {}): Promise<CoverageReport | null> {
+export async function adminCurriculum(
+  db: Db,
+  actor: Actor,
+): Promise<CurriculumView | null> {
   assertAdmin(actor);
-  const min = opts.minQuestions ?? MIN_QUESTIONS_PER_LOS;
-  const c = await activeCurriculumOrNull(db);
-  if (!c) return null;
-
-  const plannedLos = sql<string>`jsonb_array_elements_text(${planItems.losIds})`;
-  const [counts, planned, [plans]] = await Promise.all([
-    questionCountsByLos(db),
-    db
-      .selectDistinct({ losId: plannedLos })
-      .from(planItems)
-      .innerJoin(studyPlans, and(eq(studyPlans.id, planItems.planId), eq(studyPlans.active, true), eq(studyPlans.versionId, c.version.id)))
-      .where(inArray(planItems.type, ["read", "practice"])),
-    db
-      .select({ n: count() })
-      .from(studyPlans)
-      .where(and(eq(studyPlans.active, true), eq(studyPlans.versionId, c.version.id))),
-  ]);
-  const plannedSet = new Set(planned.map((p) => p.losId));
-  const topicById = new Map(c.topics.map((t) => [t.id, t]));
-  const moduleById = new Map(c.modules.map((m) => [m.id, m]));
-  const losById = new Map(c.los.map((l) => [l.id, l]));
-
-  const rows: CoverageRow[] = [];
-  // Curriculum order: topic, module, objective.
-  for (const m of c.modules) {
-    const t = topicById.get(m.topicId)!;
-    for (const id of m.losIds) {
-      const l = losById.get(id)!;
-      const n = counts.get(id) ?? 0;
-      rows.push({
-        losId: id,
-        code: l.code,
-        text: l.text,
-        commandWord: l.commandWord,
-        importance: l.importance,
-        topicId: t.id,
-        topicCode: t.code,
-        topicName: t.name,
-        moduleTitle: moduleById.get(l.moduleId)!.title,
-        questions: n,
-        inActivePlan: plannedSet.has(id),
-        belowMin: n < min,
-      });
-    }
-  }
-  const topicSummary = c.topics.map((t) => {
-    const r = rows.filter((x) => x.topicId === t.id);
+  const active = await loadActive(db);
+  if (!active) return null;
+  const per = new Map<string, number>();
+  for (const c of await publishedCounts(db))
+    per.set(c.moduleId, (per.get(c.moduleId) ?? 0) + c.n);
+  const view = active.topics.map((t) => {
+    const mods = active.modules
+      .filter((m) => m.topicId === t.id)
+      .sort((a, b) => a.number - b.number)
+      .map((m) => ({
+        id: m.id,
+        number: m.number,
+        title: m.title,
+        slug: m.slug,
+        questionCount: per.get(m.id) ?? 0,
+      }));
     return {
       id: t.id,
       code: t.code,
       name: t.name,
-      los: r.length,
-      belowMin: r.filter((x) => x.belowMin).length,
-      notInAnyPlan: plans.n > 0 ? r.filter((x) => !x.inActivePlan).length : 0,
+      weightMin: t.weightMin,
+      weightMax: t.weightMax,
+      studyWeeks: t.studyWeeks,
+      questionCount: mods.reduce((s, m) => s + m.questionCount, 0),
+      modules: mods,
     };
   });
-  const belowMin = rows.filter((r) => r.belowMin);
   return {
-    version: { id: c.version.id, name: c.version.name, isSample: c.version.isSample },
-    minQuestions: min,
-    activePlans: plans.n,
-    rows,
-    summary: {
-      totalLos: rows.length,
-      covered: rows.length - belowMin.length,
-      belowMin: belowMin.length,
-      zeroQuestions: rows.filter((r) => r.questions === 0).length,
-      questionsNeeded: belowMin.reduce((s, r) => s + (min - r.questions), 0),
-      notInAnyPlan: plans.n > 0 ? rows.filter((r) => !r.inActivePlan).length : 0,
-      topics: topicSummary,
+    version: active.version,
+    topics: view,
+    totals: {
+      topics: view.length,
+      modules: active.modules.length,
+      studyWeeks: view.reduce((s, t) => s + t.studyWeeks, 0),
+      questions: view.reduce((s, t) => s + t.questionCount, 0),
     },
   };
 }
 
-// ------------------------------------------------------------------ users
+// ---------------------------------------------------------------- coverage
 
-export type UserRow = {
-  id: string;
-  email: string;
-  name: string;
-  role: Role;
-  createdAt: Date;
-  disabledAt: Date | null;
-  /** Classes taught (teachers) or joined (students). */
-  classes: number;
+export type CoverageStatus = "none" | "low" | "ok";
+
+export type CoverageView = {
+  versionName: string;
+  min: number;
+  topics: {
+    id: string;
+    code: string;
+    name: string;
+    total: number;
+    needing: number;
+    modules: {
+      id: string;
+      number: number;
+      title: string;
+      slug: string;
+      total: number;
+      byDifficulty: [number, number, number];
+      status: CoverageStatus;
+    }[];
+  }[];
+  totals: {
+    published: number;
+    modules: number;
+    covered: number;
+    low: number;
+    none: number;
+    byDifficulty: [number, number, number];
+    bySource: { source: string; n: number }[];
+  };
+  /** Published questions not attached to a module of the active curriculum. */
+  unmapped: number;
 };
 
-export async function listUsers(db: Db, actor: Actor, filter: { role?: Role; q?: string } = {}): Promise<UserRow[]> {
-  assertAdmin(actor);
-  const conds = [];
-  if (filter.role) conds.push(eq(users.role, filter.role));
-  const q = filter.q?.trim().toLowerCase().slice(0, 100);
-  if (q) {
-    const like = `%${q.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
-    conds.push(sql`(lower(${users.email}) like ${like} or lower(${users.name}) like ${like})`);
-  }
-  const rows = await db
-    .select({
-      id: users.id,
-      email: users.email,
-      name: users.name,
-      role: users.role,
-      createdAt: users.createdAt,
-      disabledAt: users.disabledAt,
-    })
-    .from(users)
-    .where(conds.length ? and(...conds) : undefined)
-    .orderBy(desc(users.role), asc(users.name)) // admins, teachers, then students
-    .limit(1000);
-  if (rows.length === 0) return [];
-  const ids = rows.map((r) => r.id);
-  const [taught, joined] = await Promise.all([
-    db.select({ id: classes.teacherId, n: count() }).from(classes).where(and(inArray(classes.teacherId, ids), eq(classes.archived, false))).groupBy(classes.teacherId),
-    db.select({ id: enrollments.studentId, n: count() }).from(enrollments).where(inArray(enrollments.studentId, ids)).groupBy(enrollments.studentId),
-  ]);
-  const t = new Map(taught.map((r) => [r.id, r.n]));
-  const j = new Map(joined.map((r) => [r.id, r.n]));
-  return rows.map((r) => ({ ...r, classes: (r.role === "student" ? j.get(r.id) : t.get(r.id)) ?? 0 }));
-}
-
-/** Random, readable initial password (no look-alike characters). */
-export function generatePassword(length = 16): string {
-  const alphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const bytes = randomBytes(length);
-  let out = "";
-  // 256 % 56 != 0, so reject the biased tail to keep the choice uniform.
-  for (let i = 0; out.length < length; i++) {
-    const b = i < bytes.length ? bytes[i] : randomBytes(1)[0];
-    if (b < 224) out += alphabet[b % alphabet.length];
-  }
-  return out;
-}
-
-/**
- * Create a teacher (or another admin). Students self-register with a class code.
- * Leave `password` empty to generate one; it is returned once so it can be handed over.
- */
-export async function createTeacher(
+export async function adminCoverage(
   db: Db,
   actor: Actor,
-  input: { email: string; name: string; role?: "teacher" | "admin"; password?: string; timezone?: string },
-): Promise<{ user: PublicUser; generatedPassword: string | null }> {
+): Promise<CoverageView | null> {
   assertAdmin(actor);
-  const role = input.role ?? "teacher";
-  if (role !== "teacher" && role !== "admin") throw new ValidationError("Staff accounts are teachers or admins. Students join with a class code.");
-  const email = input.email?.trim() ?? "";
-  if (!EMAIL_RE.test(email) || email.length > 200) throw new ValidationError("Enter a valid email address.");
-  const name = input.name?.trim() ?? "";
-  if (name.length < 2 || name.length > 80) throw new ValidationError("Enter a name of 2 to 80 characters.");
-  let password = input.password ?? "";
-  let generated: string | null = null;
-  if (!password) {
-    generated = generatePassword();
-    password = generated;
-  } else if (password.length < MIN_PASSWORD_LENGTH) {
-    throw new ValidationError(`Use a password of at least ${MIN_PASSWORD_LENGTH} characters, or leave it blank to generate one.`);
-  } else if (password.length > 200) {
-    throw new ValidationError("That password is too long.");
+  const active = await loadActive(db);
+  if (!active) return null;
+  const counts = await publishedCounts(db);
+  const bySource = await db
+    .select({ source: questions.source, n: sql<number>`count(*)::int` })
+    .from(questions)
+    .where(eq(questions.status, "published"))
+    .groupBy(questions.source)
+    .orderBy(desc(sql`count(*)`));
+  const per = new Map<string, [number, number, number]>();
+  for (const c of counts) {
+    const row = per.get(c.moduleId) ?? [0, 0, 0];
+    row[Math.min(3, Math.max(1, c.difficulty)) - 1] += c.n;
+    per.set(c.moduleId, row);
   }
-  const user = await createUser(db, { email, name, role, password, timezone: input.timezone });
-  await audit(db, actor, "user.create", "user", user.id, { role, email: user.email });
-  return { user, generatedPassword: generated };
+  const statusOf = (n: number): CoverageStatus =>
+    n === 0 ? "none" : n < MIN_QUESTIONS_PER_MODULE ? "low" : "ok";
+  const totals = {
+    published: 0,
+    modules: active.modules.length,
+    covered: 0,
+    low: 0,
+    none: 0,
+    byDifficulty: [0, 0, 0] as [number, number, number],
+  };
+  let mapped = 0;
+  const topicsView = active.topics.map((t) => {
+    const mods = active.modules
+      .filter((m) => m.topicId === t.id)
+      .sort((a, b) => a.number - b.number)
+      .map((m) => {
+        const d = per.get(m.id) ?? [0, 0, 0];
+        const total = d[0] + d[1] + d[2];
+        const status = statusOf(total);
+        mapped += total;
+        totals.byDifficulty[0] += d[0];
+        totals.byDifficulty[1] += d[1];
+        totals.byDifficulty[2] += d[2];
+        if (status === "ok") totals.covered++;
+        else if (status === "low") totals.low++;
+        else totals.none++;
+        return {
+          id: m.id,
+          number: m.number,
+          title: m.title,
+          slug: m.slug,
+          total,
+          byDifficulty: d,
+          status,
+        };
+      });
+    return {
+      id: t.id,
+      code: t.code,
+      name: t.name,
+      total: mods.reduce((s, m) => s + m.total, 0),
+      needing: mods.filter((m) => m.status !== "ok").length,
+      modules: mods,
+    };
+  });
+  totals.published = bySource.reduce((s, r) => s + r.n, 0);
+  return {
+    versionName: active.version.name,
+    min: MIN_QUESTIONS_PER_MODULE,
+    topics: topicsView,
+    totals: { ...totals, bySource },
+    unmapped: Math.max(0, totals.published - mapped),
+  };
 }
 
-/** Disable or re-enable an account. Disabled users are signed out on their next request. */
-export async function setUserDisabled(db: Db, actor: Actor, userId: string, disabled: boolean) {
+// ------------------------------------------------------------ question CSV
+
+export type ImportPreviewRow = {
+  row: number;
+  line: number;
+  status: "ok" | "duplicate" | "error";
+  module: string;
+  /** Resolved module, for ok / duplicate rows. */
+  moduleLabel?: string;
+  stem: string;
+  correctKey?: string;
+  difficulty?: number;
+  errors: string[];
+  note?: string;
+};
+
+export type ImportPreview = {
+  fileErrors: string[];
+  fileWarnings: string[];
+  counts: { total: number; ok: number; duplicates: number; errors: number };
+  rows: ImportPreviewRow[];
+  /** Questions that would be added, per module slug. */
+  perModule: { slug: string; title: string; n: number }[];
+};
+
+async function analyse(db: Db | Tx, csv: string) {
+  const active = await loadActive(db);
+  if (!active)
+    throw new NotFoundError(
+      "No active curriculum. Run the deploy setup first.",
+    );
+  const index = moduleIndexOf(active);
+  const parsed = parseQuestionCsv(csv, index);
+  let rows: AnalysedRow[] = [];
+  if (parsed.fileErrors.length === 0) {
+    const existing = await db
+      .select({ moduleId: questions.moduleId, stem: questions.stem })
+      .from(questions)
+      .where(
+        inArray(
+          questions.moduleId,
+          active.modules.map((m) => m.id),
+        ),
+      );
+    rows = markDuplicates(
+      parsed.rows,
+      new Set(existing.map((e) => duplicateKey(e.moduleId!, e.stem))),
+    );
+  }
+  return { active, parsed, rows };
+}
+
+/** Parse and validate a CSV without writing anything. */
+export async function previewQuestionImport(
+  db: Db,
+  actor: Actor,
+  csv: string,
+): Promise<ImportPreview> {
   assertAdmin(actor);
-  if (userId === actor.id) throw new ValidationError("You can't disable your own account.");
-  if (!UUID_RE.test(userId)) throw new NotFoundError("That user doesn't exist.");
-  const [row] = await db
-    .update(users)
-    .set({ disabledAt: disabled ? new Date() : null })
-    .where(eq(users.id, userId))
-    .returning({ id: users.id, email: users.email, name: users.name, role: users.role, disabledAt: users.disabledAt });
-  if (!row) throw new NotFoundError("That user doesn't exist.");
-  await audit(db, actor, disabled ? "user.disable" : "user.enable", "user", row.id, { email: row.email, role: row.role });
-  return row;
+  const { active, parsed, rows } = await analyse(db, csv);
+  const titleBySlug = new Map(active.modules.map((m) => [m.slug, m.title]));
+  const perSlug = new Map<string, number>();
+  const out: ImportPreviewRow[] = rows.map((r) => {
+    if (r.status === "error")
+      return {
+        row: r.row,
+        line: r.line,
+        status: "error",
+        module: r.module,
+        stem: r.stem,
+        errors: r.errors,
+      };
+    const d = r.draft;
+    const base = {
+      row: r.row,
+      line: r.line,
+      module: r.module,
+      moduleLabel: d.moduleSlug,
+      stem: d.stem.slice(0, 160),
+      correctKey: d.correctKey,
+      difficulty: d.difficulty,
+      errors: [] as string[],
+    };
+    if (r.status === "duplicate") {
+      return {
+        ...base,
+        status: "duplicate",
+        note:
+          r.of === "bank"
+            ? "Already in the question bank (same module and stem). It will be skipped."
+            : `Same as row ${r.of.row} in this file. It will be skipped.`,
+      };
+    }
+    perSlug.set(d.moduleSlug, (perSlug.get(d.moduleSlug) ?? 0) + 1);
+    return { ...base, status: "ok" };
+  });
+  return {
+    fileErrors: parsed.fileErrors,
+    fileWarnings: parsed.fileWarnings,
+    counts: summarise(rows),
+    rows: out,
+    perModule: [...perSlug]
+      .map(([slug, n]) => ({ slug, title: titleBySlug.get(slug) ?? slug, n }))
+      .sort((a, b) => a.slug.localeCompare(b.slug)),
+  };
+}
+
+export type ImportResult = {
+  imported: number;
+  skippedInvalid: number;
+  skippedDuplicates: number;
+};
+
+/**
+ * Import the valid rows of a question CSV as published questions (source "imported").
+ * Everything is re-validated here; the preview is never trusted. Without `skipInvalid`, any
+ * invalid row aborts the whole import. Duplicates (same module and stem) are always skipped.
+ */
+export async function importQuestions(
+  db: Db,
+  actor: Actor,
+  csv: string,
+  opts: { skipInvalid: boolean },
+): Promise<ImportResult> {
+  assertAdmin(actor);
+  return db.transaction(async (tx) => {
+    await tx.execute(IMPORT_LOCK);
+    const { parsed, rows } = await analyse(tx, csv);
+    if (parsed.fileErrors.length)
+      throw new ValidationError(parsed.fileErrors[0]);
+    const s = summarise(rows);
+    if (s.errors > 0 && !opts.skipInvalid) {
+      throw new ValidationError(
+        `${s.errors} ${s.errors === 1 ? "row has" : "rows have"} errors, so nothing was imported. Fix the file, or choose to skip invalid rows.`,
+      );
+    }
+    const good = rows.flatMap((r) => (r.status === "ok" ? [r.draft] : []));
+    if (good.length === 0)
+      throw new ValidationError(
+        s.duplicates > 0
+          ? "Every valid row is already in the question bank. Nothing to import."
+          : "There are no valid questions to import.",
+      );
+    await tx.insert(questions).values(
+      good.map((d) => ({
+        stem: d.stem,
+        options: d.options,
+        correctKey: d.correctKey,
+        explanation: d.explanation,
+        difficulty: d.difficulty,
+        status: "published" as const,
+        moduleId: d.moduleId,
+        source: "imported",
+        authorId: actor.id,
+      })),
+    );
+    const labels = [
+      ...new Set(good.map((d) => d.source).filter(Boolean)),
+    ].slice(0, 10);
+    await audit(tx, actor, "questions.import", "question", null, {
+      imported: good.length,
+      skippedInvalid: s.errors,
+      skippedDuplicates: s.duplicates,
+      sourceLabels: labels,
+    });
+    return {
+      imported: good.length,
+      skippedInvalid: s.errors,
+      skippedDuplicates: s.duplicates,
+    };
+  });
+}
+
+/** The published question bank as CSV (same columns as the import template; formula-safe). */
+export async function exportQuestionBank(
+  db: Db,
+  actor: Actor,
+): Promise<string> {
+  assertAdmin(actor);
+  const rows = await db
+    .select({
+      slug: modules.slug,
+      stem: questions.stem,
+      options: questions.options,
+      correctKey: questions.correctKey,
+      explanation: questions.explanation,
+      difficulty: questions.difficulty,
+      source: questions.source,
+    })
+    .from(questions)
+    .leftJoin(modules, eq(modules.id, questions.moduleId))
+    .where(eq(questions.status, "published"))
+    .orderBy(asc(modules.slug), asc(questions.createdAt), asc(questions.id));
+  const opt = (o: { key: string; text: string }[], k: string) =>
+    o.find((x) => x.key === k)?.text ?? "";
+  return toCsv(
+    [
+      [...QUESTION_CSV.columns],
+      ...rows.map((r) => [
+        r.slug ?? "",
+        r.stem,
+        opt(r.options, "A"),
+        opt(r.options, "B"),
+        opt(r.options, "C"),
+        opt(r.options, "D"),
+        r.correctKey,
+        r.explanation,
+        r.difficulty,
+        r.source,
+      ]),
+    ],
+    { bom: true },
+  );
 }

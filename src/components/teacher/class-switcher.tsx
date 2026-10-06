@@ -1,36 +1,44 @@
-"use client";
+import Link from "next/link";
+import { cn } from "@/lib/cn";
 
-import { usePathname, useRouter } from "next/navigation";
-import { useTransition } from "react";
-import { Select } from "@/components/ui";
-
-/** Switches the ?class= param of the current page. */
-export function ClassSwitcher({ classes, current }: { classes: { id: string; name: string; students: number }[]; current: string }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const [pending, start] = useTransition();
+/** Pill links between a teacher's classes; the choice lives in `?class=<id>` so it survives reloads and can be shared. */
+export function ClassSwitcher({
+  classes,
+  activeId,
+}: {
+  classes: { id: string; name: string; students: number }[];
+  activeId: string;
+}) {
   if (classes.length < 2) return null;
   return (
-    <div className="space-y-1">
-      <label htmlFor="class-switch" className="block text-xs font-medium uppercase tracking-[0.08em] text-ink-2">
-        Class
-      </label>
-      <Select
-        id="class-switch"
-        defaultValue={current}
-        aria-busy={pending}
-        className="w-64! max-w-full"
-        onChange={(e) => {
-          const id = e.target.value;
-          start(() => router.push(`${pathname}?class=${encodeURIComponent(id)}`));
-        }}
-      >
-        {classes.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name} ({c.students})
-          </option>
-        ))}
-      </Select>
-    </div>
+    <nav aria-label="Choose a class" className="-mt-2 mb-5">
+      <ul className="flex flex-wrap gap-2">
+        {classes.map((c) => {
+          const active = c.id === activeId;
+          return (
+            <li key={c.id}>
+              <Link
+                href={`/teacher?class=${c.id}`}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm font-semibold transition max-sm:min-h-11",
+                  active
+                    ? "border-brand bg-brand-soft text-brand"
+                    : "border-border-strong bg-surface-2 text-ink-2 hover:text-ink",
+                )}
+              >
+                {c.name}
+                <span className="tabular text-xs font-medium opacity-80">
+                  {c.students}
+                </span>
+                <span className="sr-only">
+                  {c.students === 1 ? "student" : "students"}
+                </span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
   );
 }

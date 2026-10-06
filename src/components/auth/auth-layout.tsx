@@ -14,41 +14,34 @@ export function AuthLayout({ title, subtitle, children, aside }: { title: string
           <ThemeToggle />
         </div>
         <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center py-10">
-          <h1 className="font-[family-name:var(--font-display)] text-3xl tracking-tight text-ink">{title}</h1>
+          <h1 className="text-3xl font-bold tracking-[-0.03em] text-ink">{title}</h1>
           <p className="mt-2 mb-8 text-ink-2">{subtitle}</p>
           {children}
           {aside}
         </main>
       </div>
-      <div className="relative hidden overflow-hidden bg-[var(--m-4)] lg:block" aria-hidden>
+      <div className="relative hidden overflow-hidden lg:block" aria-hidden>
         <AuthArt />
       </div>
     </div>
   );
 }
 
-/** Decorative: a curriculum map filling in, cell by cell. */
+/** Decorative: the study roadmap as ten topic bars filling at different rates. */
 function AuthArt() {
-  const cols = 14;
-  const rows = 18;
-  const cells = Array.from({ length: cols * rows }, (_, i) => {
-    const x = i % cols;
-    const y = Math.floor(i / cols);
-    const v = (Math.sin(x * 1.7 + y * 0.9) + Math.cos(y * 1.3 - x * 0.4) + 2) / 4 - y / rows / 2.2;
-    return { x, y, level: v > 0.55 ? 4 : v > 0.4 ? 3 : v > 0.28 ? 2 : v > 0.15 ? 1 : 0 };
-  });
-  const fills = ["rgb(255 255 255 / 0.05)", "var(--m-1)", "var(--m-2)", "var(--m-3)", "rgb(255 255 255 / 0.85)"];
+  const topics = [78, 64, 52, 40, 31, 22, 14, 8, 4, 0];
   return (
-    <div className="absolute inset-0 flex flex-col justify-between p-12 text-white">
-      <svg viewBox={`0 0 ${cols * 22} ${rows * 22}`} className="absolute inset-0 h-full w-full opacity-70" preserveAspectRatio="xMidYMid slice">
-        {cells.map((c) => (
-          <rect key={`${c.x}-${c.y}`} x={c.x * 22 + 3} y={c.y * 22 + 3} width={16} height={16} rx={3} fill={fills[c.level]} />
+    <div className="absolute inset-0 flex flex-col justify-between bg-gradient-to-br from-[#12304a] to-[#08111d] p-12 text-white">
+      <div className="mt-10 space-y-3.5 opacity-90">
+        {topics.map((v, i) => (
+          <div key={i} className="h-3 rounded-full bg-white/10">
+            <div className="h-full rounded-full bg-gradient-to-r from-[#2ba9cf] to-[#69e5dc]" style={{ width: `${v}%` }} />
+          </div>
         ))}
-      </svg>
-      <div className="relative" />
-      <div className="relative max-w-md">
-        <p className="font-[family-name:var(--font-display)] text-3xl leading-snug">Every learning objective, tracked until it sticks.</p>
-        <p className="mt-3 text-white/80">A plan that adapts when life happens, practice that targets what you&apos;re weakest at, and a teacher who can see where to help.</p>
+      </div>
+      <div className="max-w-md">
+        <p className="text-3xl font-bold leading-snug tracking-tight">All 102 modules. One clear pace.</p>
+        <p className="mt-3 text-white/75">Know whether you&apos;re ahead or behind your study plan, what to read next, and when to review. Your teacher sees where the class needs help.</p>
       </div>
     </div>
   );

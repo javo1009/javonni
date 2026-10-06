@@ -1,249 +1,445 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Badge, Banner, ButtonLink, Card, CardBody, CardHeader, EmptyState, PageHeader, Stat, TableWrap, buttonClass, td, th } from "@/components/ui";
-import { ChoiceDistribution, Funnel } from "@/components/teacher/charts";
-import { HomeworkStatus, LateBadge, scoreText } from "@/components/teacher/labels";
-import { PublishButton } from "@/components/teacher/publish-button";
-import { formatDateTime, plural } from "@/lib/format";
+import { notFound } from "next/navigation";
+import { AssignButton } from "@/components/homework/teacher/assign-button";
+import { EditDue } from "@/components/homework/teacher/edit-due";
+import { HandoutManager } from "@/components/homework/teacher/handout-manager";
+import { markableOrder } from "@/components/homework/teacher/student-order";
+import {
+  StudentTable,
+  type StudentRowData,
+} from "@/components/homework/teacher/student-table";
+import {
+  formatWhen,
+  PHASE_LABEL,
+  PHASE_TONE,
+  phaseOf,
+  relativeTime,
+} from "@/components/homework/teacher/time";
+import {
+  Badge,
+  Banner,
+  buttonClass,
+  Card,
+  CardBody,
+  CardHeader,
+  Eyebrow,
+  Metric,
+  ProgressBar,
+  StatusPill,
+} from "@/components/ui";
+import { cn } from "@/lib/cn";
+import { plural } from "@/lib/format";
 import { teacherContext } from "@/server/context";
-import { getRoster } from "@/services/classes";
+import { assertClassAccess } from "@/services/access";
 import { getAssignmentForTeacher } from "@/services/homework";
-import { orNotFound } from "../../_lib/guard";
+import { ForbiddenError, NotFoundError } from "@/services/types";
 
-export const metadata: Metadata = { title: "Homework detail" };
+export const metadata: Metadata = { title: "Homework · Ascent" };
 
-const SHOW_ANSWERS = { after_due: "after the due date", immediately: "right after submitting", never: "never" } as const;
-
-/** The most-chosen wrong option, if enough students picked it to be worth discussing. */
-function commonWrong(counts: Record<string, number>, correctKey: string): string | null {
-  const total = Object.values(counts).reduce((a, b) => a + b, 0);
-  const wrong = Object.entries(counts)
-    .filter(([k]) => k !== correctKey)
-    .sort((a, b) => b[1] - a[1])[0];
-  if (!wrong || wrong[1] < 2 || wrong[1] / Math.max(1, total) < 0.25) return null;
-  return wrong[0];
-}
-
-export default async function AssignmentPage({
+export default async function HomeworkDetailPage({
   params,
   searchParams,
-}: {
-  params: Promise<{ id: string }>;
-  searchParams: Promise<{ assigned?: string; saved?: string }>;
-}) {
-  const [{ id }, sp] = await Promise.all([params, searchParams]);
+}: PageProps<"/teacher/homework/[id]">) {
+  const { id } = await params;
+  const sp = await searchParams;
   const { actor, db, user, now } = await teacherContext();
-  const { detail, roster } = await orNotFound(id, async (aid) => {
-    const detail = await getAssignmentForTeacher(db, actor, aid);
-    const roster = await getRoster(db, actor, detail.assignment.classId);
-    return { detail, roster };
-  });
-  const { assignment: a, items, students } = detail;
-  const draft = a.status === "draft";
-  const pastDue = a.dueAt.getTime() < now;
-  const started = students.filter((s) => s.status !== "not_started").length;
-  const submitted = students.filter((s) => s.status === "submitted" || s.status === "graded").length;
-  const graded = students.filter((s) => s.status === "graded").length;
-  const toGrade = students.filter((s) => s.status === "submitted" && s.submissionId);
-  const late = students.filter((s) => s.late).length;
-  const scored = students.filter((s) => s.status === "graded" && s.maxScore);
-  const avg = scored.length ? Math.round((scored.reduce((sum, s) => sum + s.score! / s.maxScore!, 0) / scored.length) * 100) : null;
-  const notStarted = students.filter((s) => s.status === "not_started");
-  const emailById = new Map(roster.map((r) => [r.id, r.email]));
-  const joinedById = new Map(roster.map((r) => [r.id, r.joinedAt]));
-  // Mirrors homeworkStats: work due before a student joined doesn't count against them.
-  const joinedAfterDue = (sid: string) => (joinedById.get(sid)?.getTime() ?? 0) > a.dueAt.getTime();
-  const reminderHref = `mailto:?bcc=${encodeURIComponent(notStarted.map((s) => emailById.get(s.id)).filter(Boolean).join(","))}&subject=${encodeURIComponent(`Reminder: ${a.title}`)}&body=${encodeURIComponent(`Hi,\n\nA reminder that "${a.title}" is due ${formatDateTime(a.dueAt, user.timezone)}. You'll find it in your Homework inbox.\n\n${user.name}`)}`;
-  const totalPoints = items.reduce((s, i) => s + i.item.points, 0);
+
+  let data;
+  try {
+    data = await getAssignmentForTeacher(db, actor, id);
+  } catch (e) {
+    if (e instanceof NotFoundError || e instanceof ForbiddenError) notFound();
+    throw e;
+  }
+  const { assignment: a, items, students, attachments } = data;
+  const cls = await assertClassAccess(db, actor, a.classId);
+  const phase = phaseOf(a, now);
+  const isDraft = a.status === "draft";
+  const pastDue = a.dueAt.getTime() <= now;
+
+  const rows: StudentRowData[] = students.map((s) => ({
+    ...s,
+    submittedAt: s.submittedAt ? s.submittedAt.toISOString() : null,
+  }));
+  const handedIn = students.filter(
+    (s) => s.status === "submitted" || s.status === "graded",
+  );
+  const toMark = students.filter((s) => s.status === "submitted");
+  const marked = students.filter(
+    (s) => s.status === "graded" && s.score !== null && s.maxScore,
+  );
+  const avg = marked.length
+    ? Math.round(
+        (marked.reduce((t, s) => t + s.score! / s.maxScore!, 0) /
+          marked.length) *
+          100,
+      )
+    : null;
+  const late = handedIn.filter((s) => s.late).length;
+  const next = markableOrder(students).find((s) => s.status === "submitted");
+  const totalPoints = items.reduce((t, i) => t + i.item.points, 0);
 
   return (
     <>
-      <PageHeader
-        eyebrow={
-          <Link href="/teacher/homework" className="hover:underline">
-            ← Homework
+      <header className="flex flex-col gap-4 pb-6 pt-8 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <Link
+            href={`/teacher/homework?class=${a.classId}`}
+            className="mb-3 inline-flex min-h-8 items-center text-sm font-semibold text-link hover:underline max-sm:min-h-11"
+          >
+            ← All homework
           </Link>
-        }
-        title={a.title}
-        description={
-          <span className="flex flex-wrap items-center gap-2">
-            {draft ? <Badge>Draft</Badge> : <Badge tone={pastDue ? "neutral" : "brand"}>{pastDue ? "Assigned · past due" : "Assigned · open"}</Badge>}
+          <Eyebrow className="mb-2">{cls.name}</Eyebrow>
+          <h1 className="break-words text-[clamp(1.7rem,3vw,2.6rem)] font-bold leading-[1.12] tracking-[-0.04em] text-ink">
+            {a.title}
+          </h1>
+          <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-ink-2">
+            <StatusPill tone={PHASE_TONE[phase]} label={PHASE_LABEL[phase]} />
             <span>
-              Due {formatDateTime(a.dueAt, user.timezone)} · {plural(items.length, "item")} · {totalPoints} pts · answers shown {SHOW_ANSWERS[a.policies.showAnswers]} ·{" "}
-              {a.policies.allowLate ? "late work accepted" : "no late work"} · {a.target.kind === "class" ? "whole class" : plural(students.length, "chosen student")}
+              {phase === "closed" ? "Was due" : "Due"}{" "}
+              {formatWhen(a.dueAt, user.timezone)} ·{" "}
+              <span suppressHydrationWarning>{relativeTime(a.dueAt, now)}</span>
             </span>
-          </span>
-        }
-        actions={
-          draft ? (
-            <PublishButton assignmentId={a.id} />
-          ) : toGrade.length ? (
-            <ButtonLink href={`/teacher/homework/${a.id}/submissions/${toGrade[0].submissionId}`}>Grade next ({toGrade.length})</ButtonLink>
-          ) : undefined
-        }
-      />
+            <span>
+              {a.target.kind === "class" ? "Whole class" : "Chosen students"}
+            </span>
+            <span>
+              {a.policies.allowLate ? "Late work accepted" : "No late work"}
+            </span>
+          </p>
+        </div>
+        <div className="flex flex-wrap items-start gap-2 sm:justify-end">
+          {isDraft ? (
+            <AssignButton
+              assignmentId={a.id}
+              disabledReason={
+                pastDue
+                  ? "The due date has passed, so this can't be assigned."
+                  : undefined
+              }
+            />
+          ) : (
+            <>
+              {next && (
+                <Link
+                  href={`/teacher/homework/${a.id}/submissions/${next.submissionId}`}
+                  className={buttonClass("primary", "md")}
+                >
+                  Mark next ({toMark.length})
+                </Link>
+              )}
+              {/* A plain link: the route returns a file, so Next shouldn't prefetch or client-navigate it. */}
+              <a
+                href={`/teacher/homework/${a.id}/export`}
+                download
+                className={buttonClass("secondary", "md")}
+              >
+                Export scores (CSV)
+              </a>
+            </>
+          )}
+        </div>
+      </header>
 
-      {sp.assigned && !draft && (
-        <div className="mb-6">
-          <Banner tone="good" title="Homework assigned">
-            It&apos;s now in the homework inbox of {plural(students.length, "student")}.
+      {sp.returned && (
+        <div
+          role="status"
+          className="mb-6 rounded-xl border border-good/40 bg-good-soft px-4 py-3 text-sm font-semibold text-good"
+        >
+          ✓ Graded work returned.
+          {toMark.length === 0 && handedIn.length > 0
+            ? " Everything handed in so far is marked."
+            : ""}
+        </div>
+      )}
+
+      <div className="mb-6">
+        <EditDue assignmentId={a.id} dueAtIso={a.dueAt.toISOString()} />
+      </div>
+
+      {isDraft && (
+        <div className="mb-6 space-y-3">
+          <Banner
+            tone={pastDue ? "risk" : "warn"}
+            title={
+              pastDue
+                ? "Draft with a due date in the past"
+                : "Draft: students can't see this yet"
+            }
+          >
+            {pastDue
+              ? "The due date has already passed, so this draft can't be assigned. Change the due date to a later time, then assign it."
+              : `Check the handout and items below, then assign it. ${attachments.length === 0 ? "You haven't attached a handout yet. " : ""}Once assigned, handout files can no longer be removed.`}
           </Banner>
         </div>
       )}
-      {sp.saved && draft && (
-        <div className="mb-6">
-          <Banner tone="brand" title="Saved as a draft">
-            Only you can see it. Assign it when you&apos;re ready.
-          </Banner>
-        </div>
-      )}
-      {a.instructions && (
-        <p className="mb-6 max-w-3xl whitespace-pre-line rounded-lg border border-border bg-surface px-4 py-3 text-sm text-ink">{a.instructions}</p>
+
+      {!isDraft && (
+        <section
+          aria-label="Progress"
+          className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
+        >
+          <Metric
+            label="Handed in"
+            value={handedIn.length}
+            unit={`of ${students.length}`}
+            meter={students.length ? handedIn.length / students.length : 0}
+            hint={
+              students.length - handedIn.length > 0
+                ? `${plural(students.length - handedIn.length, "student")} still to hand in`
+                : "Everyone has handed in"
+            }
+            primary
+          />
+          <Metric
+            label="Needs marking"
+            value={toMark.length}
+            hint={
+              toMark.length
+                ? "Oldest hand-in first"
+                : handedIn.length
+                  ? "All caught up"
+                  : "Nothing handed in yet"
+            }
+            className={toMark.length ? "border-warn/50" : undefined}
+          />
+          <Metric
+            label="Average score"
+            value={avg === null ? "—" : `${avg}%`}
+            hint={
+              marked.length
+                ? `${plural(marked.length, "marked submission")}`
+                : "Nothing marked yet"
+            }
+          />
+          <Metric
+            label="Late hand-ins"
+            value={late}
+            hint={
+              a.policies.allowLate
+                ? "Flagged in the table"
+                : "Not accepted for this homework"
+            }
+          />
+        </section>
       )}
 
-      {!draft && (
-        <div className="mb-6 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
-          <Card aria-labelledby="funnel-h">
-            <CardHeader id="funnel-h" title="Completion" />
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-start">
+        <div className="min-w-0 space-y-6">
+          <section
+            id="students"
+            aria-labelledby="students-h"
+            className="scroll-mt-4 space-y-3"
+          >
+            <h2
+              id="students-h"
+              className="text-xl font-semibold tracking-tight text-ink"
+            >
+              Students
+            </h2>
+            <StudentTable
+              assignmentId={a.id}
+              rows={rows}
+              timeZone={user.timezone}
+              isDraft={isDraft}
+            />
+          </section>
+
+          <section aria-labelledby="items-h" className="space-y-3">
+            <h2
+              id="items-h"
+              className="text-xl font-semibold tracking-tight text-ink"
+            >
+              What students hand in{" "}
+              <span className="text-base font-medium text-ink-2">
+                · {totalPoints} points
+              </span>
+            </h2>
+            <ol className="space-y-3">
+              {items.map(
+                ({ item, question, answered, correctPct, choiceCounts }, i) => {
+                  const totalChoices = Object.values(choiceCounts).reduce(
+                    (s, n) => s + n,
+                    0,
+                  );
+                  return (
+                    <li key={item.id}>
+                      <Card>
+                        <CardBody className="space-y-3 pt-4">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="tabular text-sm font-bold text-ink-2">
+                              {i + 1}.
+                            </span>
+                            <Badge
+                              tone={
+                                item.kind === "file"
+                                  ? "brand"
+                                  : item.kind === "text"
+                                    ? "neutral"
+                                    : "good"
+                              }
+                            >
+                              {item.kind === "file"
+                                ? "File upload"
+                                : item.kind === "text"
+                                  ? "Written answer"
+                                  : "Auto-marked"}
+                            </Badge>
+                            <span className="text-sm text-ink-2">
+                              {plural(item.points, "point")}
+                            </span>
+                          </div>
+                          <p className="whitespace-pre-wrap text-ink">
+                            {item.kind === "mcq" ? question?.stem : item.prompt}
+                          </p>
+                          {item.kind === "mcq" && question ? (
+                            <div className="space-y-2">
+                              <p className="text-sm text-ink-2">
+                                {answered === 0 ? (
+                                  "No answers yet."
+                                ) : (
+                                  <>
+                                    <strong className="tabular text-ink">
+                                      {correctPct}%
+                                    </strong>{" "}
+                                    correct · {plural(answered, "answer")}
+                                  </>
+                                )}
+                              </p>
+                              {answered > 0 && (
+                                <ProgressBar
+                                  value={correctPct ?? 0}
+                                  max={100}
+                                  label={`Question ${i + 1}: percent correct`}
+                                />
+                              )}
+                              <ul className="space-y-1.5">
+                                {question.options.map((o) => {
+                                  const n = choiceCounts[o.key] ?? 0;
+                                  const share = totalChoices
+                                    ? n / totalChoices
+                                    : 0;
+                                  const isCorrect =
+                                    o.key === question.correctKey;
+                                  return (
+                                    <li
+                                      key={o.key}
+                                      className="grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-3 text-sm"
+                                    >
+                                      <div className="relative min-w-0 overflow-hidden rounded-lg border border-border bg-surface-2 px-3 py-1.5">
+                                        <span
+                                          aria-hidden
+                                          className={cn(
+                                            "absolute inset-y-0 left-0",
+                                            isCorrect
+                                              ? "bg-good-soft"
+                                              : "bg-surface-3",
+                                          )}
+                                          style={{ width: `${share * 100}%` }}
+                                        />
+                                        <span
+                                          className={cn(
+                                            "relative block truncate",
+                                            isCorrect
+                                              ? "font-semibold text-good"
+                                              : "text-ink",
+                                          )}
+                                          title={o.text}
+                                        >
+                                          {o.key}. {o.text}
+                                          {isCorrect && <span> (correct)</span>}
+                                        </span>
+                                      </div>
+                                      <span className="tabular text-right text-ink-2">
+                                        {n}{" "}
+                                        <span className="sr-only">
+                                          {plural(n, "student", "students")}{" "}
+                                          chose {o.key}
+                                        </span>
+                                      </span>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-ink-2">
+                              {isDraft
+                                ? "Marked by you."
+                                : `${handedIn.length} of ${students.length} handed in · ${marked.length} marked`}
+                            </p>
+                          )}
+                        </CardBody>
+                      </Card>
+                    </li>
+                  );
+                },
+              )}
+            </ol>
+          </section>
+        </div>
+
+        <aside className="space-y-6">
+          <Card aria-labelledby="files-h">
+            <CardHeader
+              id="files-h"
+              title="Handout files"
+              subtitle="What students download to complete offline."
+            />
             <CardBody>
-              <Funnel
-                steps={[
-                  { label: "Targeted", value: students.length },
-                  { label: "Started", value: started },
-                  { label: "Submitted", value: submitted },
-                  { label: "Graded", value: graded },
-                ]}
+              <HandoutManager
+                assignmentId={a.id}
+                files={attachments.map((f) => ({
+                  id: f.id,
+                  name: f.name,
+                  size: f.size,
+                }))}
+                isDraft={isDraft}
               />
             </CardBody>
           </Card>
-          <Card>
-            <CardBody className="grid grid-cols-2 gap-4 pt-5">
-              <Stat label="Avg score" value={avg === null ? "—" : `${avg}%`} hint={scored.length ? `${plural(scored.length, "graded submission")}` : "Nothing graded yet"} />
-              <Stat label="Late" value={late} />
-              <Stat label="To grade" value={toGrade.length} tone={toGrade.length ? "warn" : undefined} />
-              <Stat label="Not started" value={notStarted.length} />
-              {notStarted.length > 0 && !pastDue && (
-                <a href={reminderHref} className={buttonClass("secondary", "sm", "col-span-2")}>
-                  Email a reminder to {plural(notStarted.length, "non-starter")}
-                </a>
+          <Card aria-labelledby="instr-h">
+            <CardHeader id="instr-h" title="Instructions" />
+            <CardBody>
+              {a.instructions.trim() ? (
+                <p className="whitespace-pre-wrap text-ink">{a.instructions}</p>
+              ) : (
+                <p className="text-sm text-ink-2">No written instructions.</p>
               )}
             </CardBody>
           </Card>
-        </div>
-      )}
-
-      <section aria-labelledby="students-h" className="mb-8">
-        <h2 id="students-h" className="mb-3 text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
-          Students
-        </h2>
-        {students.length === 0 ? (
-          <EmptyState title="No students targeted">Students who join the class later will get whole-class homework automatically.</EmptyState>
-        ) : (
-          <TableWrap label="Student submissions">
-            <table className="relative w-full min-w-[44rem]">
-              <caption className="sr-only">Submission status per student</caption>
-              <thead className="border-b border-border">
-                <tr>
-                  <th scope="col" className={th}>Student</th>
-                  <th scope="col" className={th}>Status</th>
-                  <th scope="col" className={th}>Submitted</th>
-                  <th scope="col" className={`${th} text-right`}>Score</th>
-                  <th scope="col" className={th}>
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {students.map((s) => (
-                  <tr key={s.id}>
-                    <th scope="row" className={`${td} text-left font-medium`}>
-                      <Link href={`/teacher/students/${s.id}`} className="text-ink hover:underline">
-                        {s.name}
-                      </Link>
-                    </th>
-                    <td className={td}>
-                      <span className="flex flex-wrap items-center gap-2">
-                        {s.status === "not_started" && joinedAfterDue(s.id) ? (
-                          <span className="text-sm text-ink-2">Joined after due date</span>
-                        ) : (
-                          <HomeworkStatus status={s.status} overdue={!draft && pastDue && !s.submittedAt} />
-                        )}
-                        <LateBadge late={s.late} />
-                      </span>
-                    </td>
-                    <td className={`${td} tabular`}>{s.submittedAt ? formatDateTime(s.submittedAt, user.timezone) : <span className="text-ink-3">—</span>}</td>
-                    <td className={`${td} tabular text-right`}>{s.status === "graded" ? scoreText(s.score, s.maxScore) : <span className="text-ink-3">—</span>}</td>
-                    <td className={`${td} text-right`}>
-                      {s.submissionId && (s.status === "submitted" || s.status === "graded") && (
-                        <Link
-                          href={`/teacher/homework/${a.id}/submissions/${s.submissionId}`}
-                          className={buttonClass(s.status === "submitted" ? "primary" : "ghost", "sm")}
-                        >
-                          {s.status === "submitted" ? "Grade" : "Review"}
-                          <span className="sr-only"> {s.name}</span>
-                        </Link>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </TableWrap>
-        )}
-      </section>
-
-      <section aria-labelledby="items-h">
-        <h2 id="items-h" className="mb-3 text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
-          Questions{!draft && " · how the class answered"}
-        </h2>
-        <ol className="space-y-4">
-          {items.map((it, i) => {
-            const q = it.question;
-            const wrongKey = q ? commonWrong(it.choiceCounts, q.correctKey) : null;
-            return (
-              <li key={it.item.id}>
-                <Card>
-                  <CardBody className="pt-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <p className="min-w-0 flex-1 text-sm text-ink">
-                        <span className="mr-2 font-semibold text-ink-2">Q{i + 1}</span>
-                        {q ? q.stem : it.item.prompt}
-                      </p>
-                      <span className="flex shrink-0 items-center gap-2">
-                        <Badge>{it.item.kind === "mcq" ? "Multiple choice" : "Written"}</Badge>
-                        <Badge>{plural(it.item.points, "pt")}</Badge>
-                        {!draft && it.item.kind === "mcq" && (
-                          <span className="tabular text-sm font-semibold text-ink">
-                            {it.correctPct === null ? "No answers yet" : `${it.correctPct}% correct`}
-                            {it.answered > 0 && <span className="font-normal text-ink-2"> · {it.answered} answered</span>}
-                          </span>
-                        )}
-                        {!draft && it.item.kind === "text" && <span className="text-sm text-ink-2">{plural(it.answered, "answer")} graded</span>}
-                      </span>
-                    </div>
-                    {q && (
-                      <div className="mt-3">
-                        {draft ? (
-                          <ul className="space-y-1 text-sm">
-                            {q.options.map((o) => (
-                              <li key={o.key} className={o.key === q.correctKey ? "font-medium text-good" : "text-ink"}>
-                                {o.key}. {o.text}
-                                {o.key === q.correctKey && " ✓ correct"}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <ChoiceDistribution options={q.options} counts={it.choiceCounts} correctKey={q.correctKey} commonWrongKey={wrongKey} />
-                        )}
-                      </div>
-                    )}
-                  </CardBody>
-                </Card>
-              </li>
-            );
-          })}
-        </ol>
-      </section>
+          <Card aria-labelledby="rules-h">
+            <CardHeader id="rules-h" title="Rules" />
+            <CardBody>
+              <dl className="space-y-2 text-sm">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-ink-2">Late work</dt>
+                  <dd className="text-ink">
+                    {a.policies.allowLate
+                      ? "Accepted, flagged"
+                      : "Not accepted"}
+                  </dd>
+                </div>
+                {items.some((i) => i.item.kind === "mcq") && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-ink-2">Correct answers shown</dt>
+                    <dd className="text-ink">
+                      {
+                        {
+                          never: "Never",
+                          after_due: "After the due date",
+                          immediately: "Right after hand-in",
+                        }[a.policies.showAnswers]
+                      }
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            </CardBody>
+          </Card>
+        </aside>
+      </div>
     </>
   );
 }

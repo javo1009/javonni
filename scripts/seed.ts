@@ -1,11 +1,17 @@
 import { closeDb, getDb } from "../src/db/client";
 import { DEMO_DOMAIN, DEMO_PASSWORD, seedDemo } from "../src/db/seed/demo";
-import { seedSampleCurriculum } from "../src/db/seed/sample";
+import { ensureOfficialCurriculum, seedSampleQuestions } from "../src/db/seed/official";
 
 async function main() {
   const db = getDb();
-  const sample = await seedSampleCurriculum(db);
-  console.log(sample.created ? "Seeded sample curriculum (clearly labelled as demo data)." : "A curriculum is already active; skipped.");
+  const cur = await ensureOfficialCurriculum(db);
+  console.log(
+    cur.action === "kept"
+      ? "A curriculum is already active; kept it."
+      : `${cur.action === "created" ? "Loaded" : "Activated"} the 2027 Level I curriculum (10 topics, 102 modules).`,
+  );
+  const added = await seedSampleQuestions(db, cur.versionId);
+  if (added) console.log(`Added ${added} sample questions (source = "sample").`);
 
   if (process.argv.includes("--demo")) {
     console.warn(

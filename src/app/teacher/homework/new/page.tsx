@@ -1,49 +1,99 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ButtonLink, EmptyState, PageHeader } from "@/components/ui";
-import { AssignmentBuilder } from "@/components/teacher/assignment-builder";
+import { HomeworkBuilder } from "@/components/homework/teacher/homework-builder";
+import type { TopicOption } from "@/components/homework/teacher/builder-types";
 import { addDays } from "@/domain/dates";
-import { teacherContext } from "@/server/context";
-import { getBuilderData } from "@/services/teacher-views";
+import { getCurriculumOrNull, teacherContext } from "@/server/context";
+import { getRoster, listClasses } from "@/services/classes";
+import { questionCountsByModule } from "@/services/curriculum";
 
-export const metadata: Metadata = { title: "New homework" };
+export const metadata: Metadata = { title: "New homework · Ascent" };
 
-const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
-
-export default async function NewHomeworkPage({ searchParams }: { searchParams: Promise<{ class?: string | string[]; topic?: string | string[] }> }) {
-  const sp = await searchParams;
+export default async function NewHomeworkPage({
+  searchParams,
+}: PageProps<"/teacher/homework/new">) {
   const { actor, db, today } = await teacherContext();
-  const data = await getBuilderData(db, actor);
-  const backLink = (
-    <Link href="/teacher/homework" className="hover:underline">
-      ← Homework
-    </Link>
-  );
-  if (data.classes.length === 0) {
+  const sp = await searchParams;
+  const one = (v: string | string[] | undefined) =>
+    Array.isArray(v) ? v[0] : v;
+
+  const classes = await listClasses(db, actor);
+  if (classes.length === 0) {
     return (
       <>
-        <PageHeader eyebrow={backLink} title="New homework" />
-        <EmptyState title="Create a class first" action={<ButtonLink href="/teacher/classes#create">Create a class</ButtonLink>}>
-          Homework is assigned to a class or to students in it.
+        <PageHeader eyebrow="Homework" title="New homework" />
+        <EmptyState
+          title="Create a class first"
+          action={
+            <ButtonLink href="/teacher/classes">Go to classes</ButtonLink>
+          }
+        >
+          Homework is assigned to a class, so you need at least one.
         </EmptyState>
       </>
     );
   }
-  const reqClass = one(sp.class);
-  const initialClassId = data.classes.some((c) => c.id === reqClass) ? reqClass! : data.classes[0].id;
-  const topic = data.topics.find((t) => t.id === one(sp.topic));
-  // Pre-select a suggested topic's objectives that actually have questions.
-  const initialLos = topic ? topic.modules.flatMap((m) => m.los.filter((l) => l.questions > 0).map((l) => l.id)) : [];
+
+  const rosters = await Promise.all(
+    classes.map((c) => getRoster(db, actor, c.id)),
+  );
+  const classOptions = classes.map((c, i) => ({
+    id: c.id,
+    name: c.name,
+    students: rosters[i].map((s) => ({ id: s.id, name: s.name })),
+  }));
+  const wantedClass = one(sp.class);
+  const defaultClassId =
+    classOptions.find((c) => c.id === wantedClass)?.id ?? classOptions[0].id;
+
+  const cur = await getCurriculumOrNull();
+  const counts = cur
+    ? await questionCountsByModule(db)
+    : new Map<string, number>();
+  const topics: TopicOption[] = cur
+    ? cur.topics.map((t) => ({
+        id: t.id,
+        name: t.name,
+        modules: cur.modules
+          .filter((m) => m.topicId === t.id)
+          .map((m) => ({
+            id: m.id,
+            number: m.number,
+            title: m.title,
+            count: counts.get(m.id) ?? 0,
+          })),
+      }))
+    : [];
+  const wantedModule = one(sp.module);
+  const presetModuleId =
+    wantedModule &&
+    cur?.moduleById.has(wantedModule) &&
+    (counts.get(wantedModule) ?? 0) > 0
+      ? wantedModule
+      : undefined;
+
   return (
     <>
-      <PageHeader eyebrow={backLink} title="New homework" description="Build a set from the question bank in four short steps." />
-      <AssignmentBuilder
-        classes={data.classes}
-        topics={data.topics}
-        initialClassId={initialClassId}
-        initialLosIds={initialLos}
-        initialTitle={topic ? `${topic.name} practice` : ""}
-        defaultDue={`${addDays(today, 7)}T21:00`}
+      <PageHeader
+        eyebrow="Homework"
+        title="New homework"
+        description="Upload a handout, choose who gets it and what they hand in. Students download the file, complete it and upload their work for you to mark."
+        actions={
+          <Link
+            href="/teacher/homework"
+            className="inline-flex h-10 items-center text-sm font-semibold text-link hover:underline max-sm:h-11"
+          >
+            ← All homework
+          </Link>
+        }
+      />
+      <HomeworkBuilder
+        classes={classOptions}
+        topics={topics}
+        defaultClassId={defaultClassId}
+        defaultDate={addDays(today, 7)}
+        presetModuleId={presetModuleId}
       />
     </>
   );

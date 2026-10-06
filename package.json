@@ -14,7 +14,6 @@
     "db:migrate": "tsx --env-file-if-exists=.env.local scripts/migrate.ts",
     "db:seed": "tsx --env-file-if-exists=.env.local scripts/seed.ts",
     "user:create": "tsx --env-file-if-exists=.env.local scripts/create-user.ts",
-    "import:curriculum": "tsx --env-file-if-exists=.env.local scripts/import-curriculum.ts",
     "test:e2e": "playwright test",
     "vercel-build": "tsx scripts/deploy-setup.ts && next build"
   },

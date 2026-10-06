@@ -5,7 +5,7 @@ Vercel and Neon change their dashboards often. These steps say what to do; when 
 **No local tools are needed.** On Vercel the build runs `npm run vercel-build`, which first runs `scripts/deploy-setup.ts` and then `next build`. Deploy setup:
 
 1. applies database migrations;
-2. loads the labelled **sample curriculum** if no curriculum is active;
+2. loads the **2027 Level I curriculum** (10 topics, 102 modules, study-week allocation) and a bank of original sample practice questions, if they are not there yet. A database that still holds the v1 sample curriculum has it replaced by the official module list;
 3. creates the first admin from `ADMIN_EMAIL` / `ADMIN_PASSWORD`, if set and that user doesn't exist yet;
 4. loads the demo class, only when `SEED_DEMO=1`.
 
@@ -51,7 +51,8 @@ Deployments → **Redeploy** the latest deployment (environment-variable changes
 3. Sign in with the admin account. Then:
    - **Admin → Users:** create teacher accounts.
    - **Teacher → Classes:** create a class and share its join code or link with students.
-   - **Admin → Curriculum:** when you have the official 2027 Level I outline, import it as CSV. The bundled curriculum is a labelled sample, not the official learning outcomes.
+   - **Admin → Question coverage:** add more practice questions by CSV (the bundled bank is a small set of original questions).
+   - **Teacher → Homework:** upload a worksheet, assign it, then mark the files students upload.
 
 ## 6. Preview deployments
 
@@ -61,11 +62,16 @@ Every push to another branch gets a Preview deployment, which runs deploy setup 
 
 Merging to the production branch deploys automatically. Migrations are generated in development (`npm run db:generate`), committed in `drizzle/`, and applied by deploy setup on the next deploy. Write migrations so the previous app version keeps working while the new one rolls out: add columns first, remove later.
 
-## 8. Before going public
+## 8. Homework files
+
+Handouts, student uploads and teacher feedback files are stored in Postgres (a `bytea` column), so there is no extra storage service to set up. Limits: 4 MB per file, 5 files per upload slot, 100 MB per user. Everything is served through `/api/files/<id>`, which checks who is asking; files are always downloaded, never displayed on the site's own origin. Neon's free plan has a small storage allowance, so watch **Admin → Overview → storage used**. If you need larger files, move storage to [Vercel Blob](https://vercel.com/docs/storage/vercel-blob) (`src/services/files.ts` is the only place that touches the bytes).
+
+## 9. Before going public
 
 - Add rate limiting on sign-in and registration, e.g. a [Vercel Firewall](https://vercel.com/docs/vercel-firewall) rule for `/login` and `/register`.
 - Make sure `SEED_DEMO` and `NEXT_PUBLIC_DEMO_MODE` are **not** set in Production, and that no `@ascent.demo` accounts exist there.
-- Check CFA Institute's terms before displaying official learning outcome text or using the CFA® marks.
+- Check CFA Institute's terms before displaying official curriculum text or using the CFA® marks.
+- Upgrading from v1: the migration drops the v1 plan/learning-objective tables (`los_progress`, `plan_items`, `study_plans`, `question_los`). Student accounts, classes and homework are kept; v1 progress is not carried over.
 
 ## Optional: run scripts from your machine
 
@@ -74,9 +80,8 @@ You can run the same steps locally against any database, using the direct (unpoo
 ```bash
 read -rs DATABASE_URL_UNPOOLED && export DATABASE_URL_UNPOOLED DATABASE_URL="$DATABASE_URL_UNPOOLED"
 npm run db:migrate
-npm run db:seed                                        # sample curriculum (add -- --demo for the demo class)
+npm run db:seed                                        # 2027 curriculum + sample questions (add -- --demo for the demo class)
 npm run user:create -- you@example.com "Your Name" admin
-npm run import:curriculum -- outline.csv --activate     # official outline as CSV
 ```
 
 ## Troubleshooting
@@ -87,5 +92,6 @@ npm run import:curriculum -- outline.csv --activate     # official outline as CS
 | Build fails with "SESSION_SECRET must be set" | Add it for this environment (step 4), then redeploy. |
 | `/api/health` returns 503 | Database unreachable. Check the connection variables and the function logs. |
 | Signed out after a deploy | `SESSION_SECRET` changed. Expected. |
-| Large CSV import fails in the browser | Uploads are capped at about 900 KB. Use `npm run import:curriculum` or split the file. |
+| Large CSV import fails in the browser | Question CSV uploads are capped at about 900 KB. Split the file. |
+| A homework upload is rejected | Files are limited to 4 MB each (Vercel rejects request bodies above about 4.5 MB). Allowed: PDF, Word, Excel, PowerPoint, CSV, text, PNG, JPG. |
 | `prepared statement ... does not exist` | A tool other than the app is using the pooled URL with prepared statements. Use the unpooled URL for tools. |

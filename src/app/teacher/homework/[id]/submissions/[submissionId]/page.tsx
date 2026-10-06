@@ -1,108 +1,206 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { PageHeader } from "@/components/ui";
-import { GradingForm, type GradeItem } from "@/components/teacher/grading-form";
-import { LateBadge } from "@/components/teacher/labels";
-import { formatDateTime } from "@/lib/format";
+import {
+  MarkingForm,
+  type MarkItem,
+} from "@/components/homework/teacher/marking-form";
+import { markableOrder } from "@/components/homework/teacher/student-order";
+import { formatWhen, relativeTime } from "@/components/homework/teacher/time";
+import { Badge, Banner, buttonClass, Eyebrow } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { teacherContext } from "@/server/context";
-import { getAssignmentForTeacher, getSubmissionForTeacher } from "@/services/homework";
-import { isUuid } from "@/services/teacher-views";
-import { orNotFound } from "../../../../_lib/guard";
+import {
+  getAssignmentForTeacher,
+  getSubmissionForTeacher,
+} from "@/services/homework";
+import { ForbiddenError, NotFoundError } from "@/services/types";
 
-export const metadata: Metadata = { title: "Grade submission" };
+export const metadata: Metadata = { title: "Mark work · Ascent" };
 
-export default async function GradePage({ params }: { params: Promise<{ id: string; submissionId: string }> }) {
+export default async function MarkingPage({
+  params,
+  searchParams,
+}: PageProps<"/teacher/homework/[id]/submissions/[submissionId]">) {
   const { id, submissionId } = await params;
-  if (!isUuid(id)) notFound();
-  const { actor, db, user } = await teacherContext();
-  const { sub, detail } = await orNotFound(submissionId, async (sid) => {
-    const sub = await getSubmissionForTeacher(db, actor, sid);
-    const detail = await getAssignmentForTeacher(db, actor, sub.assignment.id);
-    return { sub, detail };
-  });
-  // The URL's assignment must match the submission's.
-  if (sub.assignment.id !== id) notFound();
-  const { assignment: a, student, submission: s } = sub;
+  const sp = await searchParams;
+  const { actor, db, user, now } = await teacherContext();
 
-  const queue = detail.students
-    .filter((x) => x.submissionId && (x.status === "submitted" || x.status === "graded"))
-    .map((x) => ({ submissionId: x.submissionId!, name: x.name, status: x.status as "submitted" | "graded", late: x.late }));
-  const items: GradeItem[] = sub.items.map(({ item, question, answer }) => ({
-    itemId: item.id,
-    kind: item.kind === "text" ? "text" : "mcq",
-    maxPoints: item.points,
-    text: question ? question.stem : (item.prompt ?? ""),
-    options: question?.options ?? null,
-    correctKey: question?.correctKey ?? null,
-    chosenKey: answer?.chosenKey ?? null,
-    textAnswer: answer?.textAnswer ?? null,
-    pointsAwarded: answer?.pointsAwarded ?? null,
-    feedback: answer?.feedback ?? "",
-  }));
+  let sub, overview;
+  try {
+    sub = await getSubmissionForTeacher(db, actor, submissionId);
+    if (sub.assignment.id !== id) notFound();
+    overview = await getAssignmentForTeacher(db, actor, id);
+  } catch (e) {
+    if (e instanceof NotFoundError || e instanceof ForbiddenError) notFound();
+    throw e;
+  }
+  const { assignment: a, student, submission: s } = sub;
+  const base = `/teacher/homework/${a.id}`;
+  const handedIn = s.status !== "in_progress";
+  const graded = s.status === "graded";
+
+  const order = markableOrder(overview.students);
+  const idx = order.findIndex((r) => r.submissionId === s.id);
+  const prev = idx > 0 ? order[idx - 1] : null;
+  const following = idx >= 0 ? (order[idx + 1] ?? null) : null;
+  const waiting = order.filter(
+    (r) => r.status === "submitted" && r.submissionId !== s.id,
+  );
+  const nextUnmarked =
+    waiting.find((r) => order.indexOf(r) > idx) ?? waiting[0] ?? null;
+  const subHref = (r: { submissionId: string | null }) =>
+    `${base}/submissions/${r.submissionId}`;
+
+  const items: MarkItem[] = sub.items.map(
+    ({ item, question, answer, files }) => ({
+      id: item.id,
+      kind: item.kind as MarkItem["kind"],
+      points: item.points,
+      prompt:
+        item.kind === "mcq" ? (question?.stem ?? "") : (item.prompt ?? ""),
+      files: files.map((f) => ({ id: f.id, name: f.name, size: f.size })),
+      textAnswer: answer?.textAnswer ?? null,
+      chosenKey: answer?.chosenKey ?? null,
+      options: question?.options ?? null,
+      correctKey: question?.correctKey ?? null,
+      correct: answer?.correct ?? null,
+      pointsAwarded: answer?.pointsAwarded ?? null,
+      feedback: answer?.feedback ?? null,
+    }),
+  );
+
+  const navLink =
+    "inline-flex h-9 items-center rounded-[10px] border border-border-strong bg-surface-2 px-3 text-sm font-semibold text-ink hover:bg-surface-3 max-sm:h-11";
 
   return (
     <>
-      <PageHeader
-        eyebrow={
-          <Link href={`/teacher/homework/${a.id}`} className="hover:underline">
-            ← {a.title}
+      <header className="pb-5 pt-8">
+        <Link
+          href={base}
+          className="mb-3 inline-flex min-h-8 items-center text-sm font-semibold text-link hover:underline max-sm:min-h-11"
+        >
+          ← {a.title}
+        </Link>
+        <Eyebrow className="mb-2">Marking</Eyebrow>
+        <h1 className="break-words text-[clamp(1.7rem,3vw,2.6rem)] font-bold leading-[1.12] tracking-[-0.04em] text-ink">
+          {student?.name ?? "Student"}
+        </h1>
+        <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-ink-2">
+          {handedIn && s.submittedAt ? (
+            <span>
+              Handed in {formatWhen(s.submittedAt, user.timezone)} ·{" "}
+              <span suppressHydrationWarning>
+                {relativeTime(s.submittedAt, now)}
+              </span>
+            </span>
+          ) : (
+            <span>Not handed in yet</span>
+          )}
+          {s.late && <Badge tone="risk">Late</Badge>}
+          {graded ? (
+            <Badge tone="good">
+              ✓ Marked {s.score}/{s.maxScore}
+            </Badge>
+          ) : handedIn ? (
+            <Badge tone="warn">● Needs marking</Badge>
+          ) : (
+            <Badge tone="brand">◐ In progress</Badge>
+          )}
+        </p>
+      </header>
+
+      {sp.returned && (
+        <div
+          role="status"
+          className="mb-4 rounded-xl border border-good/40 bg-good-soft px-4 py-3 text-sm font-semibold text-good"
+        >
+          ✓ Graded work returned. Here is the next one to mark.
+        </div>
+      )}
+
+      <nav
+        aria-label="Submissions"
+        className="mb-6 flex flex-wrap items-center gap-2"
+      >
+        {prev ? (
+          <Link
+            href={subHref(prev)}
+            className={navLink}
+            aria-label={`Previous: ${prev.name}`}
+          >
+            ← <span className="ml-1 max-w-32 truncate">{prev.name}</span>
           </Link>
-        }
-        title={student.name}
-        description={
-          <span className="flex flex-wrap items-center gap-2">
-            {s.submittedAt ? `Submitted ${formatDateTime(s.submittedAt, user.timezone)}` : "Not submitted"}
-            <LateBadge late={s.late} />
-            <span>· {s.status === "graded" ? "Graded" : "Waiting for grading"}</span>
+        ) : (
+          <span
+            className={cn(navLink, "pointer-events-none opacity-40")}
+            aria-hidden
+          >
+            ←
           </span>
-        }
-      />
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
-        <nav aria-label="Submissions for this homework" className="lg:sticky lg:top-6 lg:self-start">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
-            Submissions ({queue.filter((q) => q.status === "submitted").length} to grade)
-          </p>
-          <ul className="flex gap-1 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
-            {queue.map((q) => {
-              const current = q.submissionId === s.id;
-              return (
-                <li key={q.submissionId} className="shrink-0">
-                  <Link
-                    href={`/teacher/homework/${a.id}/submissions/${q.submissionId}`}
-                    aria-current={current ? "page" : undefined}
-                    className={cn(
-                      "flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm",
-                      current ? "bg-brand-soft font-semibold text-brand" : "text-ink hover:bg-surface-2",
-                    )}
-                  >
-                    <span className="truncate">{q.name}</span>
-                    <span className={cn("shrink-0 text-xs", q.status === "submitted" ? "font-medium text-warn" : "text-ink-2")}>
-                      {q.status === "submitted" ? "To grade" : "Graded"}
-                    </span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="mt-3 hidden text-xs text-ink-2 lg:block">
-            Keys: <kbd className="rounded border border-border px-1">J</kbd> / <kbd className="rounded border border-border px-1">K</kbd> next / previous ·{" "}
-            <kbd className="rounded border border-border px-1">Ctrl</kbd>+<kbd className="rounded border border-border px-1">Enter</kbd> save
-          </p>
-        </nav>
-        <GradingForm
+        )}
+        {following ? (
+          <Link
+            href={subHref(following)}
+            className={navLink}
+            aria-label={`Next: ${following.name}`}
+          >
+            <span className="mr-1 max-w-32 truncate">{following.name}</span> →
+          </Link>
+        ) : (
+          <span
+            className={cn(navLink, "pointer-events-none opacity-40")}
+            aria-hidden
+          >
+            →
+          </span>
+        )}
+        {idx >= 0 && (
+          <span className="tabular text-sm text-ink-2">
+            {idx + 1} of {order.length} handed in
+          </span>
+        )}
+        {nextUnmarked && (
+          <Link
+            href={subHref(nextUnmarked)}
+            className={cn(buttonClass("secondary", "md"), "ml-auto")}
+          >
+            Next to mark: {nextUnmarked.name} ({waiting.length} waiting)
+          </Link>
+        )}
+      </nav>
+
+      {!handedIn ? (
+        <Banner
+          tone="warn"
+          title={`${student?.name ?? "This student"} hasn't handed this in yet`}
+        >
+          You can mark it once they hand it in.{" "}
+          <Link
+            href={base}
+            className="font-semibold underline underline-offset-2"
+          >
+            Back to the class list
+          </Link>
+        </Banner>
+      ) : (
+        <MarkingForm
+          // Fresh state per submission when moving between students.
           key={s.id}
           submissionId={s.id}
           assignmentId={a.id}
-          status={s.status}
           items={items}
-          overallFeedback={s.teacherFeedback ?? ""}
-          score={s.score}
-          maxScore={s.maxScore}
-          queue={queue}
+          graded={graded}
+          initialFeedback={s.teacherFeedback ?? ""}
+          feedbackFiles={sub.feedbackFiles.map((f) => ({
+            id: f.id,
+            name: f.name,
+            size: f.size,
+          }))}
+          nextHref={nextUnmarked ? subHref(nextUnmarked) : null}
+          nextName={nextUnmarked?.name ?? null}
         />
-      </div>
+      )}
     </>
   );
 }
