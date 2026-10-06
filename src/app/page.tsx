@@ -1,69 +1,75 @@
-import Image from "next/image";
+import { redirect } from "next/navigation";
+import { ButtonLink } from "@/components/ui";
+import { Logo } from "@/components/shell/app-shell";
+import { ThemeToggle } from "@/components/shell/theme-toggle";
+import { MasteryLegend } from "@/components/viz/mastery";
+import { getCurrentUser, ROLE_HOME } from "@/server/dal";
 
-export default function Home() {
+const FEATURES = [
+  { title: "A plan that adapts", body: "Set your exam date and weekly hours. Ascent schedules every module, spaced review and full mocks, and offers ways to catch up when you slip." },
+  { title: "Every objective tracked", body: "Each learning objective moves from not started to proficient, with review prompts before it fades." },
+  { title: "Practice that targets weak spots", body: "Questions pick what you most need: overdue reviews, untouched objectives and recent mistakes." },
+  { title: "Teachers see where to help", body: "A cockpit that leads with who needs attention, a class heatmap and homework that grades itself." },
+];
+
+export default async function Home() {
+  const user = await getCurrentUser();
+  if (user) redirect(ROLE_HOME[user.role]);
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-dvh">
+      <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-5 sm:px-8">
+        <Logo />
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <ButtonLink href="/login" variant="secondary" size="sm">
+            Sign in
+          </ButtonLink>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+      </header>
+      <main className="mx-auto max-w-6xl px-4 sm:px-8">
+        <section className="grid gap-10 py-12 lg:grid-cols-[1.1fr_1fr] lg:items-center lg:py-20">
+          <div>
+            <p className="text-sm font-medium text-brand">CFA® Program Level I · 2027 curriculum</p>
+            <h1 className="mt-3 font-[family-name:var(--font-display)] text-4xl leading-[1.1] tracking-tight text-ink sm:text-5xl">
+              Know exactly what to study today, and whether you&apos;re on track.
+            </h1>
+            <p className="mt-5 max-w-xl text-lg text-ink-2">
+              Ascent turns the Level I curriculum into a personal plan, tracks every learning objective, and gives your teacher a clear view of
+              where the class needs help.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <ButtonLink href="/register" size="lg">
+                Join your class
+              </ButtonLink>
+              <ButtonLink href="/login" variant="secondary" size="lg">
+                Sign in
+              </ButtonLink>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-border bg-surface p-6 shadow-[var(--shadow-card)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">Your curriculum map</p>
+            <div className="mt-4 grid grid-cols-12 gap-1" aria-hidden>
+              {Array.from({ length: 96 }, (_, i) => {
+                const v = (i * 37) % 11;
+                const cls = v < 3 ? "hatch" : v < 5 ? "bg-m-1" : v < 7 ? "bg-m-2" : v < 9 ? "bg-m-3" : "bg-m-4";
+                return <span key={i} className={`aspect-square rounded-[3px] ring-1 ring-inset ring-border-strong/60 ${cls}`} />;
+              })}
+            </div>
+            <MasteryLegend className="mt-4" />
+          </div>
+        </section>
+        <section className="grid gap-4 pb-20 sm:grid-cols-2 lg:grid-cols-4" aria-label="Features">
+          {FEATURES.map((f) => (
+            <div key={f.title} className="rounded-xl border border-border bg-surface p-5">
+              <h2 className="font-semibold text-ink">{f.title}</h2>
+              <p className="mt-2 text-sm text-ink-2">{f.body}</p>
+            </div>
+          ))}
+        </section>
       </main>
+      <footer className="border-t border-border py-6 text-center text-xs text-ink-3">
+        CFA® and Chartered Financial Analyst® are trademarks owned by CFA Institute. Ascent is not affiliated with or endorsed by CFA Institute.
+      </footer>
     </div>
   );
 }

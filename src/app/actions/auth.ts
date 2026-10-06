@@ -8,7 +8,16 @@ import { createSession, deleteSession } from "@/server/session";
 import { authenticate, registerStudent } from "@/services/users";
 import { ValidationError } from "@/services/types";
 
-export type AuthFormState = { error?: string; fieldErrors?: Record<string, string[]> } | undefined;
+export type AuthFormState =
+  | {
+      error?: string;
+      fieldErrors?: Record<string, string[]>;
+      /** Non-secret values echoed back so the form keeps them after React resets it. */
+      values?: { email?: string; name?: string; joinCode?: string };
+    }
+  | undefined;
+
+const str = (v: FormDataEntryValue | null) => (typeof v === "string" ? v.slice(0, 200) : "");
 
 const LoginSchema = z.object({
   email: z.email({ error: "Enter a valid email address." }).trim(),
@@ -27,15 +36,17 @@ const RegisterSchema = z.object({
 });
 
 export async function login(_prev: AuthFormState, formData: FormData): Promise<AuthFormState> {
+  const values = { email: str(formData.get("email")) };
   const parsed = LoginSchema.safeParse({ email: formData.get("email"), password: formData.get("password") });
-  if (!parsed.success) return { fieldErrors: z.flattenError(parsed.error).fieldErrors };
+  if (!parsed.success) return { fieldErrors: z.flattenError(parsed.error).fieldErrors, values };
   const user = await authenticate(getDb(), parsed.data.email, parsed.data.password);
-  if (!user) return { error: "Email or password is incorrect." };
+  if (!user) return { error: "Email or password is incorrect.", values };
   await createSession(user.id, user.role);
   redirect(ROLE_HOME[user.role]);
 }
 
 export async function register(_prev: AuthFormState, formData: FormData): Promise<AuthFormState> {
+  const values = { email: str(formData.get("email")), name: str(formData.get("name")), joinCode: str(formData.get("joinCode")) };
   const parsed = RegisterSchema.safeParse({
     name: formData.get("name"),
     email: formData.get("email"),
@@ -43,12 +54,12 @@ export async function register(_prev: AuthFormState, formData: FormData): Promis
     joinCode: formData.get("joinCode"),
     timezone: formData.get("timezone") ?? undefined,
   });
-  if (!parsed.success) return { fieldErrors: z.flattenError(parsed.error).fieldErrors };
+  if (!parsed.success) return { fieldErrors: z.flattenError(parsed.error).fieldErrors, values };
   try {
     const user = await registerStudent(getDb(), parsed.data);
     await createSession(user.id, user.role);
   } catch (e) {
-    if (e instanceof ValidationError) return { error: e.message };
+    if (e instanceof ValidationError) return { error: e.message, values };
     throw e;
   }
   redirect(ROLE_HOME.student);

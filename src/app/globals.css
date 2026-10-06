@@ -1,26 +1,167 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* Theme: tokens from docs/cfa-platform/UX-DESIGN.md §3. Mastery ramps validated
+   with the dataviz validator (ordinal, light surface #fcfcfb / dark #0E1722). */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  color-scheme: light;
+  --canvas: #f5f7fa;
+  --surface: #ffffff;
+  --surface-2: #f0f3f7;
+  --border: #dde3ea;
+  --border-strong: #b9c3cf;
+  --ink: #0b1f33;
+  --ink-2: #4a5b6e;
+  --ink-3: #6b7b8c;
+  --brand: #0f6f6a;
+  --brand-ink: #ffffff;
+  --brand-soft: #e3f2f0;
+  --warn: #9a4a00;
+  --warn-soft: #fdf0e1;
+  --risk: #b42318;
+  --risk-soft: #fdeceb;
+  --good: #1a7f4b;
+  --good-soft: #e5f4ec;
+  --focus: #0f6f6a;
+  /* Mastery (ordinal): not started = hatch; then studied -> proficient */
+  --m-none: #e5eaf1;
+  --m-1: #6fb9b2;
+  --m-2: #3e9c95;
+  --m-3: #1e7f79;
+  --m-4: #0f5f5a;
+  --m-hatch: #b9c3cf;
+  --shadow: 0 1px 2px rgb(11 31 51 / 0.06), 0 8px 24px rgb(11 31 51 / 0.06);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --canvas: #0a111a;
+    --surface: #0e1722;
+    --surface-2: #142030;
+    --border: #22324a;
+    --border-strong: #34496a;
+    --ink: #e8eef5;
+    --ink-2: #9fb0c3;
+    --ink-3: #7d8fa5;
+    --brand: #4fc3bb;
+    --brand-ink: #062320;
+    --brand-soft: #103532;
+    --warn: #f0a24b;
+    --warn-soft: #3a2710;
+    --risk: #ff8a7e;
+    --risk-soft: #3d1715;
+    --good: #5cd394;
+    --good-soft: #0f3322;
+    --focus: #4fc3bb;
+    --m-none: #1a2738;
+    --m-1: #1f6560;
+    --m-2: #2e8a83;
+    --m-3: #49ada5;
+    --m-4: #86d4cb;
+    --m-hatch: #34496a;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.3);
   }
 }
 
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #0a111a;
+  --surface: #0e1722;
+  --surface-2: #142030;
+  --border: #22324a;
+  --border-strong: #34496a;
+  --ink: #e8eef5;
+  --ink-2: #9fb0c3;
+  --ink-3: #7d8fa5;
+  --brand: #4fc3bb;
+  --brand-ink: #062320;
+  --brand-soft: #103532;
+  --warn: #f0a24b;
+  --warn-soft: #3a2710;
+  --risk: #ff8a7e;
+  --risk-soft: #3d1715;
+  --good: #5cd394;
+  --good-soft: #0f3322;
+  --focus: #4fc3bb;
+  --m-none: #1a2738;
+  --m-1: #1f6560;
+  --m-2: #2e8a83;
+  --m-3: #49ada5;
+  --m-4: #86d4cb;
+  --m-hatch: #34496a;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.3);
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-soft: var(--brand-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-risk: var(--risk);
+  --color-risk-soft: var(--risk-soft);
+  --color-good: var(--good);
+  --color-good-soft: var(--good-soft);
+  --color-m-none: var(--m-none);
+  --color-m-1: var(--m-1);
+  --color-m-2: var(--m-2);
+  --color-m-3: var(--m-3);
+  --color-m-4: var(--m-4);
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+  --shadow-card: var(--shadow);
+  --radius-card: 12px;
+}
+
+html {
+  background: var(--canvas);
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Figures never jitter. */
+.tabular,
+table,
+[data-numeric] {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Not-started mastery cells: hatch so state never depends on colour alone. */
+.hatch {
+  background-color: var(--m-none);
+  background-image: repeating-linear-gradient(135deg, transparent 0 4px, var(--m-hatch) 4px 5px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

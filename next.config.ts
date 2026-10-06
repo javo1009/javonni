@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Keep the dev badge away from the sidebar's sign-out control.
+  devIndicators: { position: "bottom-right" },
+  poweredByHeader: false,
 };
 
 export default nextConfig;
