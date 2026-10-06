@@ -6,23 +6,17 @@ import { useSyncExternalStore } from "react";
 const KEY = "ascent-theme";
 
 function current(): "light" | "dark" {
-  const set = document.documentElement.dataset.theme;
-  if (set === "light" || set === "dark") return set;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  // Dark is the default; only an explicit "light" switches it.
+  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
 }
 
 const subscribe = (cb: () => void) => {
-  const mq = window.matchMedia("(prefers-color-scheme: dark)");
-  mq.addEventListener("change", cb);
   window.addEventListener("ascent-theme", cb);
-  return () => {
-    mq.removeEventListener("change", cb);
-    window.removeEventListener("ascent-theme", cb);
-  };
+  return () => window.removeEventListener("ascent-theme", cb);
 };
 
 export function ThemeToggle() {
-  const theme = useSyncExternalStore(subscribe, current, () => "light" as const);
+  const theme = useSyncExternalStore(subscribe, current, () => "dark" as const);
   const next = theme === "dark" ? "light" : "dark";
   return (
     <button
@@ -34,7 +28,7 @@ export function ThemeToggle() {
         } catch {}
         window.dispatchEvent(new Event("ascent-theme"));
       }}
-      className="inline-flex size-9 items-center justify-center rounded-lg text-ink-2 hover:bg-surface-2 hover:text-ink"
+      className="inline-flex size-10 items-center justify-center rounded-[10px] border border-border-strong bg-surface-2 text-ink-2 hover:bg-surface-3 hover:text-ink max-sm:size-11"
       aria-label={`Switch to ${next} theme`}
       title={`Switch to ${next} theme`}
     >

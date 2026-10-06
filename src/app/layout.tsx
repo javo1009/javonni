@@ -3,15 +3,16 @@ import { themeInitScript } from "@/components/shell/theme-toggle";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "Ascent · CFA® Level I study tracker", template: "%s · Ascent" },
-  description: "Plan, practise and track every Level I learning objective. Teachers see progress and run homework.",
+  title: {
+    default: "Ascent · CFA® Level I study tracker",
+    template: "%s · Ascent",
+  },
+  description:
+    "Track every 2027 CFA Level I module, study hours and mock exams against your plan. Teachers see progress and set homework.",
 };
 
 export const viewport: Viewport = {
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f5f7fa" },
-    { media: "(prefers-color-scheme: dark)", color: "#0a111a" },
-  ],
+  themeColor: "#08111d",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

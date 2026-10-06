@@ -40,7 +40,12 @@ export type TopicRef = {
   studyWeeks: number;
 };
 
-export type ModuleRef = { id: string; topicId: string; number: number; title: string };
+export type ModuleRef = {
+  id: string;
+  topicId: string;
+  number: number;
+  title: string;
+};
 
 export type Confidence = 1 | 2 | 3;
 
@@ -69,13 +74,21 @@ export const EMPTY_CHAPTER: ChapterState = {
 export type ChapterStatus = "not-started" | "in-progress" | "complete";
 
 export const chapterStatus = (s: ChapterState): ChapterStatus =>
-  s.read && s.practice && s.review ? "complete" : s.read || s.practice || s.review ? "in-progress" : "not-started";
+  s.read && s.practice && s.review
+    ? "complete"
+    : s.read || s.practice || s.review
+      ? "in-progress"
+      : "not-started";
 
-export const weightLabel = (t: Pick<TopicRef, "weightMin" | "weightMax">) => `${t.weightMin}–${t.weightMax}%`;
-const weightMid = (t: Pick<TopicRef, "weightMin" | "weightMax">) => (t.weightMin + t.weightMax) / 2;
+export const weightLabel = (t: Pick<TopicRef, "weightMin" | "weightMax">) =>
+  `${t.weightMin}–${t.weightMax}%`;
+const weightMid = (t: Pick<TopicRef, "weightMin" | "weightMax">) =>
+  (t.weightMin + t.weightMax) / 2;
 
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-const pct = (part: number, whole: number) => (whole ? Math.round((part / whole) * 100) : 0);
+const clamp = (v: number, lo: number, hi: number) =>
+  Math.max(lo, Math.min(hi, v));
+const pct = (part: number, whole: number) =>
+  whole ? Math.round((part / whole) * 100) : 0;
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
 // ----------------------------------------------------------------- roadmap
@@ -96,7 +109,11 @@ export type Roadmap = {
 };
 
 /** Split `total` into integers proportional to `weights`, each at least `min`, summing to `total`. */
-export function allocate(total: number, weights: number[], min: number): number[] {
+export function allocate(
+  total: number,
+  weights: number[],
+  min: number,
+): number[] {
   const n = weights.length;
   if (n === 0) return [];
   const base = Math.max(total, min * n);
@@ -109,11 +126,20 @@ export function allocate(total: number, weights: number[], min: number): number[
       .map((e, i) => ({ i, r: (e - out[i]) * dir }))
       .sort((a, b) => b.r - a.r || a.i - b.i)
       .map((x) => x.i);
-  while (diff > 0) for (const i of byRemainder(1)) if (diff > 0) (out[i]++, diff--);
+  while (diff > 0)
+    for (const i of byRemainder(1))
+      if (diff > 0) {
+        out[i]++;
+        diff--;
+      }
   while (diff < 0) {
     const candidates = byRemainder(-1).filter((i) => out[i] > min);
     if (candidates.length === 0) break;
-    for (const i of candidates) if (diff < 0 && out[i] > min) (out[i]--, diff++);
+    for (const i of candidates)
+      if (diff < 0 && out[i] > min) {
+        out[i]--;
+        diff++;
+      }
   }
   return out;
 }
@@ -123,7 +149,11 @@ export function allocate(total: number, weights: number[], min: number): number[
  * With the sample's inputs (start 6 Oct 2026, exam 18 Feb 2027, its 10 topics) it
  * reproduces the sample's dates exactly.
  */
-export function buildRoadmap(input: { planStart: ISODate; examDate: ISODate; topics: TopicRef[] }): Roadmap {
+export function buildRoadmap(input: {
+  planStart: ISODate;
+  examDate: ISODate;
+  topics: TopicRef[];
+}): Roadmap {
   const topics = [...input.topics].sort((a, b) => a.order - b.order);
   const firstPassStart = startOfWeek(input.planStart);
   const lastStudyDay = addDays(input.examDate, -1);
@@ -136,7 +166,10 @@ export function buildRoadmap(input: { planStart: ISODate; examDate: ISODate; top
   let spans: number[]; // days per topic
   if (weekly) spans = allocate(wantedWeeks, weights, 1).map((w) => w * 7);
   else {
-    const days = Math.max(topics.length, Math.floor(runwayDays * TRACKER.firstPassShare));
+    const days = Math.max(
+      topics.length,
+      Math.floor(runwayDays * TRACKER.firstPassShare),
+    );
     spans = allocate(days, weights, 1);
   }
 
@@ -145,10 +178,16 @@ export function buildRoadmap(input: { planStart: ISODate; examDate: ISODate; top
   for (const [i, t] of topics.entries()) {
     const start = cursor;
     const end = addDays(start, spans[i] - 1);
-    windows.push({ topicId: t.id, start: start > lastStudyDay ? lastStudyDay : start, end: end > lastStudyDay ? lastStudyDay : end });
+    windows.push({
+      topicId: t.id,
+      start: start > lastStudyDay ? lastStudyDay : start,
+      end: end > lastStudyDay ? lastStudyDay : end,
+    });
     cursor = addDays(end, 1);
   }
-  const firstPassEnd = windows.length ? windows[windows.length - 1].end : firstPassStart;
+  const firstPassEnd = windows.length
+    ? windows[windows.length - 1].end
+    : firstPassStart;
   return {
     firstPassStart,
     firstPassEnd,
@@ -160,7 +199,10 @@ export function buildRoadmap(input: { planStart: ISODate; examDate: ISODate; top
   };
 }
 
-export function activeTopicWindow(roadmap: Roadmap, today: ISODate): TopicWindow | null {
+export function activeTopicWindow(
+  roadmap: Roadmap,
+  today: ISODate,
+): TopicWindow | null {
   return roadmap.topics.find((w) => w.start <= today && w.end >= today) ?? null;
 }
 
@@ -214,7 +256,8 @@ export function computePace(input: {
 }): Pace {
   const { planStart, examDate, today, weeklyTargetHours: target } = input;
   let loggedMinutes = 0;
-  for (const [d, m] of input.minutesByDate) if (d >= planStart && d <= examDate) loggedMinutes += m;
+  for (const [d, m] of input.minutesByDate)
+    if (d >= planStart && d <= examDate) loggedMinutes += m;
   const total = loggedMinutes / 60;
   const planDays = Math.max(0, diffDays(planStart, examDate));
   const capacity = Math.max(1, (planDays / 7) * target);
@@ -223,7 +266,8 @@ export function computePace(input: {
   const delta = total - expected;
   let status: PaceStatus;
   if (total === 0) status = "none";
-  else if (delta >= -TRACKER.paceToleranceHours) status = delta > TRACKER.paceToleranceHours ? "ahead" : "on-pace";
+  else if (delta >= -TRACKER.paceToleranceHours)
+    status = delta > TRACKER.paceToleranceHours ? "ahead" : "on-pace";
   else status = "behind";
   return {
     status,
@@ -237,7 +281,11 @@ export function computePace(input: {
   };
 }
 
-export function hoursInRange(minutesByDate: Map<ISODate, number>, from: ISODate, to: ISODate): number {
+export function hoursInRange(
+  minutesByDate: Map<ISODate, number>,
+  from: ISODate,
+  to: ISODate,
+): number {
   let m = 0;
   for (const [d, v] of minutesByDate) if (d >= from && d <= to) m += v;
   return m / 60;
@@ -266,7 +314,16 @@ export function topicProgress(
   states: Map<string, ChapterState>,
 ): Map<string, TopicProgress> {
   const out = new Map<string, TopicProgress>();
-  for (const t of topics) out.set(t.id, { topicId: t.id, total: 0, read: 0, complete: 0, avgAccuracy: null, scored: 0, weak: 0 });
+  for (const t of topics)
+    out.set(t.id, {
+      topicId: t.id,
+      total: 0,
+      read: 0,
+      complete: 0,
+      avgAccuracy: null,
+      scored: 0,
+      weak: 0,
+    });
   const sums = new Map<string, number>();
   for (const m of modules) {
     const p = out.get(m.topicId);
@@ -281,7 +338,8 @@ export function topicProgress(
       if (s.accuracy < TRACKER.weakScore) p.weak++;
     }
   }
-  for (const [id, p] of out) if (p.scored) p.avgAccuracy = Math.round((sums.get(id) ?? 0) / p.scored);
+  for (const [id, p] of out)
+    if (p.scored) p.avgAccuracy = Math.round((sums.get(id) ?? 0) / p.scored);
   return out;
 }
 
@@ -296,7 +354,10 @@ export type Totals = {
   weightedCompletePct: number;
 };
 
-export function totals(topics: TopicRef[], progress: Map<string, TopicProgress>): Totals {
+export function totals(
+  topics: TopicRef[],
+  progress: Map<string, TopicProgress>,
+): Totals {
   let total = 0;
   let read = 0;
   let complete = 0;
@@ -333,11 +394,17 @@ export type ChapterPace = {
   behindBy: number;
   /** Chapters read per week over the last three weeks, or null if the dates aren't known. */
   weeklyRate: number | null;
-  forecast: { finish: ISODate; verdict: "on-schedule" | "late" | "after-exam" } | { verdict: "done" | "unknown" };
+  forecast:
+    | { finish: ISODate; verdict: "on-schedule" | "late" | "after-exam" }
+    | { verdict: "done" | "unknown" };
 };
 
 /** Chapters the roadmap expects to be read by `today`: finished topics in full, the active topic pro rata. */
-export function expectedChaptersRead(roadmap: Roadmap, progress: Map<string, TopicProgress>, today: ISODate): number {
+export function expectedChaptersRead(
+  roadmap: Roadmap,
+  progress: Map<string, TopicProgress>,
+  today: ISODate,
+): number {
   let expected = 0;
   for (const w of roadmap.topics) {
     const total = progress.get(w.topicId)?.total ?? 0;
@@ -375,16 +442,31 @@ export function computeChapterPace(input: {
   const weeklyRate = dated > 0 ? round1(recent / 3) : null;
 
   let forecast: ChapterPace["forecast"];
-  if (totalChapters > 0 && actual >= totalChapters) forecast = { verdict: "done" };
+  if (totalChapters > 0 && actual >= totalChapters)
+    forecast = { verdict: "done" };
   else if (!weeklyRate || weeklyRate <= 0) forecast = { verdict: "unknown" };
   else {
-    const finish = addDays(today, Math.ceil(((totalChapters - actual) / weeklyRate) * 7));
+    const finish = addDays(
+      today,
+      Math.ceil(((totalChapters - actual) / weeklyRate) * 7),
+    );
     forecast = {
       finish,
-      verdict: finish <= roadmap.firstPassEnd ? "on-schedule" : finish <= roadmap.lastStudyDay ? "late" : "after-exam",
+      verdict:
+        finish <= roadmap.firstPassEnd
+          ? "on-schedule"
+          : finish <= roadmap.lastStudyDay
+            ? "late"
+            : "after-exam",
     };
   }
-  return { expectedRead: expected, actualRead: actual, behindBy: expected - actual, weeklyRate, forecast };
+  return {
+    expectedRead: expected,
+    actualRead: actual,
+    behindBy: expected - actual,
+    weeklyRate,
+    forecast,
+  };
 }
 
 // -------------------------------------------------------------- spaced review
@@ -401,7 +483,12 @@ export type ReviewItem = {
  * Chapters due for review: read chapters not yet reviewed after `firstReviewDays`,
  * and reviewed chapters again after `refreshDays`. Chapters with unknown dates are skipped.
  */
-export function reviewQueue(modules: ModuleRef[], states: Map<string, ChapterState>, today: ISODate, topicOrder: Map<string, number>): ReviewItem[] {
+export function reviewQueue(
+  modules: ModuleRef[],
+  states: Map<string, ChapterState>,
+  today: ISODate,
+  topicOrder: Map<string, number>,
+): ReviewItem[] {
   const out: ReviewItem[] = [];
   for (const m of modules) {
     const s = states.get(m.id);
@@ -409,10 +496,24 @@ export function reviewQueue(modules: ModuleRef[], states: Map<string, ChapterSta
     if (!s.review) {
       if (!s.readOn) continue; // unknown read date (e.g. restored backup): can't schedule
       const due = addDays(s.readOn, TRACKER.firstReviewDays);
-      if (due <= today) out.push({ moduleId: m.id, title: m.title, topicId: m.topicId, kind: "first-review", overdueDays: diffDays(due, today) });
+      if (due <= today)
+        out.push({
+          moduleId: m.id,
+          title: m.title,
+          topicId: m.topicId,
+          kind: "first-review",
+          overdueDays: diffDays(due, today),
+        });
     } else if (s.reviewedOn) {
       const due = addDays(s.reviewedOn, TRACKER.refreshDays);
-      if (due <= today) out.push({ moduleId: m.id, title: m.title, topicId: m.topicId, kind: "refresh", overdueDays: diffDays(due, today) });
+      if (due <= today)
+        out.push({
+          moduleId: m.id,
+          title: m.title,
+          topicId: m.topicId,
+          kind: "refresh",
+          overdueDays: diffDays(due, today),
+        });
     }
   }
   return out.sort(
@@ -431,14 +532,28 @@ export type Consistency = {
   longestStreak: number;
   activeDays28: number;
   /** Weeks (Monday first), oldest first; each day has minutes and a 0-4 intensity level. */
-  weeks: { date: ISODate; minutes: number; level: 0 | 1 | 2 | 3 | 4; future: boolean }[][];
+  weeks: {
+    date: ISODate;
+    minutes: number;
+    level: 0 | 1 | 2 | 3 | 4;
+    future: boolean;
+  }[][];
 };
 
-export function computeConsistency(minutesByDate: Map<ISODate, number>, today: ISODate, weeklyTargetHours: number): Consistency {
-  const active = new Set([...minutesByDate].filter(([, m]) => m > 0).map(([d]) => d));
+export function computeConsistency(
+  minutesByDate: Map<ISODate, number>,
+  today: ISODate,
+  weeklyTargetHours: number,
+): Consistency {
+  const active = new Set(
+    [...minutesByDate].filter(([, m]) => m > 0).map(([d]) => d),
+  );
   let current = 0;
   let d: ISODate = active.has(today) ? today : addDays(today, -1);
-  while (active.has(d)) (current++, (d = addDays(d, -1)));
+  while (active.has(d)) {
+    current++;
+    d = addDays(d, -1);
+  }
 
   const sorted = [...active].sort();
   let longest = 0;
@@ -450,8 +565,19 @@ export function computeConsistency(minutesByDate: Map<ISODate, number>, today: I
 
   const dailyTargetMin = (weeklyTargetHours * 60) / 7;
   const level = (m: number): 0 | 1 | 2 | 3 | 4 =>
-    m <= 0 ? 0 : m < dailyTargetMin * 0.5 ? 1 : m < dailyTargetMin ? 2 : m < dailyTargetMin * 1.75 ? 3 : 4;
-  const first = addDays(startOfWeek(today), -7 * (TRACKER.streakWindowWeeks - 1));
+    m <= 0
+      ? 0
+      : m < dailyTargetMin * 0.5
+        ? 1
+        : m < dailyTargetMin
+          ? 2
+          : m < dailyTargetMin * 1.75
+            ? 3
+            : 4;
+  const first = addDays(
+    startOfWeek(today),
+    -7 * (TRACKER.streakWindowWeeks - 1),
+  );
   const weeks = [];
   for (let w = 0; w < TRACKER.streakWindowWeeks; w++) {
     weeks.push(
@@ -479,15 +605,28 @@ export type Calibration = {
   underconfident: { moduleId: string; title: string; accuracy: number }[];
 };
 
-export function calibration(modules: ModuleRef[], states: Map<string, ChapterState>): Calibration {
+export function calibration(
+  modules: ModuleRef[],
+  states: Map<string, ChapterState>,
+): Calibration {
   const out: Calibration = { rated: 0, overconfident: [], underconfident: [] };
   for (const m of modules) {
     const s = states.get(m.id);
     if (!s || s.confidence === null) continue;
     out.rated++;
     if (s.accuracy === null) continue;
-    if (s.confidence === 3 && s.accuracy < TRACKER.weakScore) out.overconfident.push({ moduleId: m.id, title: m.title, accuracy: s.accuracy });
-    if (s.confidence === 1 && s.accuracy >= 80) out.underconfident.push({ moduleId: m.id, title: m.title, accuracy: s.accuracy });
+    if (s.confidence === 3 && s.accuracy < TRACKER.weakScore)
+      out.overconfident.push({
+        moduleId: m.id,
+        title: m.title,
+        accuracy: s.accuracy,
+      });
+    if (s.confidence === 1 && s.accuracy >= 80)
+      out.underconfident.push({
+        moduleId: m.id,
+        title: m.title,
+        accuracy: s.accuracy,
+      });
   }
   return out;
 }
@@ -502,26 +641,39 @@ export type MockStats = {
   change: number | null;
 };
 
-export function mockStats(results: { date: ISODate; score: number }[]): MockStats {
+export function mockStats(
+  results: { date: ISODate; score: number }[],
+): MockStats {
   const sorted = [...results].sort((a, b) => a.date.localeCompare(b.date));
-  if (sorted.length === 0) return { count: 0, best: null, latest: null, average: null, change: null };
+  if (sorted.length === 0)
+    return { count: 0, best: null, latest: null, average: null, change: null };
   const scores = sorted.map((r) => r.score);
   return {
     count: sorted.length,
     best: Math.max(...scores),
     latest: scores[scores.length - 1],
     average: round1(scores.reduce((a, b) => a + b, 0) / scores.length),
-    change: sorted.length > 1 ? round1(scores[scores.length - 1] - scores[scores.length - 2]) : null,
+    change:
+      sorted.length > 1
+        ? round1(scores[scores.length - 1] - scores[scores.length - 2])
+        : null,
   };
 }
 
 /** Dates by which the first and second full mocks should be done. */
 export function mockDeadlines(examDate: ISODate): [ISODate, ISODate] {
-  return [addDays(examDate, -TRACKER.mockDaysBeforeExam[0]), addDays(examDate, -TRACKER.mockDaysBeforeExam[1])];
+  return [
+    addDays(examDate, -TRACKER.mockDaysBeforeExam[0]),
+    addDays(examDate, -TRACKER.mockDaysBeforeExam[1]),
+  ];
 }
 
 // -------------------------------------------------------------- next actions
-export type NextAction = { title: string; detail: string; tab: "chapters" | "hours" | "mocks" | "overview" };
+export type NextAction = {
+  title: string;
+  detail: string;
+  tab: "chapters" | "hours" | "mocks" | "overview";
+};
 
 export function nextActions(input: {
   roadmap: Roadmap;
@@ -543,13 +695,29 @@ export function nextActions(input: {
 
   if (active) {
     const topic = topics.find((t) => t.id === active.topicId)!;
-    const next = modules.filter((m) => m.topicId === topic.id).sort((a, b) => a.number - b.number).find((m) => !state(m.id).read);
+    const next = modules
+      .filter((m) => m.topicId === topic.id)
+      .sort((a, b) => a.number - b.number)
+      .find((m) => !state(m.id).read);
     actions.push(
       next
-        ? { title: "Read the next chapter", detail: next.title, tab: "chapters" }
-        : { title: "Practice this topic", detail: `Revisit questions and review missed answers in ${topic.name}.`, tab: "chapters" },
+        ? {
+            title: "Read the next chapter",
+            detail: next.title,
+            tab: "chapters",
+          }
+        : {
+            title: "Practice this topic",
+            detail: `Revisit questions and review missed answers in ${topic.name}.`,
+            tab: "chapters",
+          },
     );
-  } else actions.push({ title: "Review your weakest chapter", detail: "Use chapter practice scores to choose what to revisit.", tab: "chapters" });
+  } else
+    actions.push({
+      title: "Review your weakest chapter",
+      detail: "Use chapter practice scores to choose what to revisit.",
+      tab: "chapters",
+    });
 
   if (input.review.length > 0) {
     const first = input.review[0];
@@ -562,9 +730,21 @@ export function nextActions(input: {
   }
 
   const weak = modules
-    .filter((m) => state(m.id).accuracy !== null && (state(m.id).accuracy as number) < TRACKER.weakScore)
-    .sort((a, b) => (state(a.id).accuracy as number) - (state(b.id).accuracy as number))[0];
-  if (weak) actions.push({ title: "Rework a weak area", detail: `${weak.title} · ${state(weak.id).accuracy}% practice score`, tab: "chapters" });
+    .filter(
+      (m) =>
+        state(m.id).accuracy !== null &&
+        (state(m.id).accuracy as number) < TRACKER.weakScore,
+    )
+    .sort(
+      (a, b) =>
+        (state(a.id).accuracy as number) - (state(b.id).accuracy as number),
+    )[0];
+  if (weak)
+    actions.push({
+      title: "Rework a weak area",
+      detail: `${weak.title} · ${state(weak.id).accuracy}% practice score`,
+      tab: "chapters",
+    });
 
   if (today < input.examDate && input.mockCount < 2) {
     const [a, b] = mockDeadlines(input.examDate);
@@ -587,8 +767,21 @@ export function nextActions(input: {
 
 // ------------------------------------------------------------------ focus
 export type Focus =
-  | { kind: "topic"; topicId: string; chapterIds: string[]; read: number; total: number; start: ISODate; end: ISODate }
-  | { kind: "review" | "upcoming"; weakIds: string[]; complete: number; total: number };
+  | {
+      kind: "topic";
+      topicId: string;
+      chapterIds: string[];
+      read: number;
+      total: number;
+      start: ISODate;
+      end: ISODate;
+    }
+  | {
+      kind: "review" | "upcoming";
+      weakIds: string[];
+      complete: number;
+      total: number;
+    };
 
 /** What to work on right now: the topic the roadmap is in, or review/weak chapters outside it. */
 export function focusModel(input: {
@@ -600,7 +793,9 @@ export function focusModel(input: {
   const { roadmap, modules, states, today } = input;
   const active = activeTopicWindow(roadmap, today);
   if (active) {
-    const chapters = modules.filter((m) => m.topicId === active.topicId).sort((a, b) => a.number - b.number);
+    const chapters = modules
+      .filter((m) => m.topicId === active.topicId)
+      .sort((a, b) => a.number - b.number);
     return {
       kind: "topic",
       topicId: active.topicId,
@@ -621,7 +816,9 @@ export function focusModel(input: {
   return {
     kind: today > roadmap.firstPassEnd ? "review" : "upcoming",
     weakIds,
-    complete: modules.filter((m) => chapterStatus(states.get(m.id) ?? EMPTY_CHAPTER) === "complete").length,
+    complete: modules.filter(
+      (m) => chapterStatus(states.get(m.id) ?? EMPTY_CHAPTER) === "complete",
+    ).length,
     total: modules.length,
   };
 }

@@ -46,7 +46,7 @@ export async function getActiveCurriculum(db: Db, versionId?: string): Promise<C
   const moduleRefs: ModuleRef[] = moduleRows
     .map((m) => ({ id: m.id, topicId: m.topicId, number: m.number, title: m.title, slug: m.slug }))
     .sort((a, b) => rank.get(a.topicId)! - rank.get(b.topicId)! || a.number - b.number)
-    .map(({ slug: _slug, ...m }) => m);
+    .map((m) => ({ id: m.id, topicId: m.topicId, number: m.number, title: m.title }));
   const slugById = new Map(moduleRows.map((m) => [m.id, m.slug]));
 
   return {

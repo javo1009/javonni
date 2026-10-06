@@ -47,7 +47,6 @@ export type UploadInput = { name: string; bytes: Buffer };
 export function sanitizeFileName(raw: string): string {
   const base = raw.split(/[\\/]/).pop() ?? "";
   const cleaned = base
-    // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f"<>:|?*]/g, "")
     .replace(/\s+/g, " ")
     .trim();
