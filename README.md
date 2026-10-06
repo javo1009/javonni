@@ -1,30 +1,27 @@
 # Ascent
 
-Ascent is a study-tracking platform for CFA® Level I candidates and the academies that teach them. Every learning objective is a trackable item. Each student gets a study plan built from their exam date and weekly availability, and an honest "on track / behind" signal. Teachers see who is falling behind and on what, send homework and grade it. Admins import and version the curriculum and see where the question bank has gaps.
+Ascent is a study tracker for CFA® Level I candidates and the teachers who prepare them. Students track all 102 modules of the 2027 curriculum, their study hours and mock exams against a plan, and see at a glance whether they are ahead or behind. Teachers see how every student is pacing and send **homework as files**: upload a worksheet, students download it, complete it and upload their work, and the teacher marks it and sends feedback back.
 
-> **Status: pre-release.** The app ships with a **sample curriculum** whose modules and objectives are illustrative, written for the demo. They are **not** the official CFA Institute learning outcome statements, and the topic weights are third-party reports that haven't been verified. Before real students use Ascent, an admin must import the official 2027 Level I outline (Admin → Curriculum). The app shows a banner whenever the sample is active.
->
-> CFA® and Chartered Financial Analyst® are trademarks of CFA Institute. Ascent is not affiliated with or endorsed by CFA Institute. Check CFA Institute's terms for prep providers before displaying objective text or using its marks (see [`docs/cfa-platform/PLAN.md`](docs/cfa-platform/PLAN.md) §7.4).
+CFA® and Chartered Financial Analyst® are trademarks of CFA Institute. Ascent is not affiliated with or endorsed by CFA Institute. The curriculum data is the public module list (topic and module titles, exam-weight ranges). The bundled practice questions are original. See [`docs/cfa-platform/TRACKER-CONCEPT.md`](docs/cfa-platform/TRACKER-CONCEPT.md) for the design and the study features.
 
 ## Features
 
 **Students**
-- Onboarding: exam date and weekly availability produce a day-by-day plan (learn → practice → mock phases).
-- Today view: the tasks for today, time logging, and an on-track/behind assessment with recovery options when they slip.
-- Curriculum map: every topic and objective with its status (not started → studied → practiced → proficient → review due).
-- Practice by topic or objective, mastery tracking, and a readiness index.
-- Homework inbox: assignments from their teacher, submit answers, see grades and feedback.
+- Overview: hours this week vs target, chapters read, time to exam, study pace (ahead / on pace / behind), today's focus topic, the topic roadmap and next actions.
+- All chapters: 102 modules with Read / Practice / Reviewed ticks, practice score and confidence rating, filters and search.
+- Study hours (log + focus timer + streaks), mock exams (trend and deadlines), practice questions, backup export/import (compatible with the original sample dashboard).
+- Study-smarter features: spaced-review queue, finish forecast, streaks, confidence calibration, exam-weighted coverage, focus timer, mock deadlines, weak-chapter practice.
+- Homework: download the handout, upload completed files, answer questions, hand in, see marks and feedback files.
 
 **Teachers**
-- Classes with join codes (students self-register with the code).
-- Cockpit: students who need attention, a students × topics heatmap, class KPIs.
-- Student 360: plan adherence, hours, mastery and homework history for one student.
-- Homework builder (auto-assemble questions from objectives, or hand-pick), targeting a class or chosen students, and a grading queue.
+- Classes with join codes; class exam date, plan start and weekly target.
+- Class overview: KPIs, who needs attention (inactive, behind on hours or roadmap, missed homework, mock drop, low scores), sortable student table with CSV export, class progress by topic.
+- Student view: the student's full tracker (read-only), alerts and homework history.
+- Homework builder with file handouts, file-upload / written / multiple-choice items, due-date control; submissions queue, marking with per-item feedback and returned feedback files, CSV export.
+- Question bank browser.
 
 **Admins**
-- Curriculum import from CSV with validation, row-numbered errors and a diff against the active version (added / removed / reworded / moved objectives, topic weight changes). Versions are immutable; activating a new one doesn't disturb existing student plans.
-- Coverage report: published questions per objective against a minimum of 3, and whether each objective has a study task in active student plans. Gaps are flagged in text, not just colour.
-- Staff accounts: create teachers or admins, disable and re-enable accounts. All admin changes go to an audit log.
+- Overview and storage use, user management (create, disable, reset password), curriculum view, question coverage and CSV import/export.
 
 ## Quick start (local)
 
@@ -53,7 +50,7 @@ Requirements: Node.js 22, PostgreSQL 14+ (16 recommended).
 
    ```bash
    npm run db:migrate
-   npm run db:seed              # sample curriculum + sample questions (clearly labelled)
+   npm run db:seed              # 2027 curriculum (102 modules) + sample questions
    # or, for a local demo with accounts and activity:
    npm run db:seed -- --demo    # adds demo users (*@ascent.demo, shared password), a class and history
    ```
@@ -79,35 +76,33 @@ Requirements: Node.js 22, PostgreSQL 14+ (16 recommended).
 | `npm test` | Vitest: unit tests plus integration tests against Postgres. |
 | `npm run db:migrate` | Applies SQL migrations from `drizzle/`. Uses `DATABASE_URL_UNPOOLED` if set, else `DATABASE_URL`. |
 | `npm run db:generate` | Generates a new migration after changing `src/db/schema.ts`. |
-| `npm run db:seed [-- --demo]` | Loads the sample curriculum if none is active; `--demo` adds demo accounts and activity. **Never use `--demo` on a production database.** |
+| `npm run db:seed [-- --demo]` | Loads the 2027 curriculum and sample questions; `--demo` adds demo accounts and activity. **Never use `--demo` on a production database.** |
 | `npm run user:create -- <email> <name> <role>` | Creates a user. Password from `ASCENT_NEW_PASSWORD` or a hidden prompt; at least 10 characters. |
-| `npm run import:curriculum -- <file.csv> [--activate] [--dry-run] [--name ..] [--year ..] [--note ..]` | Imports a curriculum CSV as a new version, with the same validation as the admin page. |
 
 All scripts load `.env.local` when it exists.
 
-## Importing the official curriculum
+## Curriculum and questions
 
-1. Get the 2027 Level I topic outline from CFA Institute (the Level I exam page links to it).
-2. Transcribe it into the CSV format: one row per objective with `topic_code, topic_name, weight_min, weight_max, module_title, est_minutes, los_code, command_word, los_text, importance` (optional `topic_difficulty`, `topic_spread`). Admin → Curriculum has a downloadable template and a column reference.
-3. Decide whether you may display the verbatim objective text (licensing). If not, use the official codes with your own short paraphrases.
-4. In Admin → Curriculum, paste or upload the file, press **Preview**, fix any errors (row numbers match your spreadsheet), review the diff, then **Import**, ticking "Make this the active version" when ready. Or use `npm run import:curriculum`.
-5. Check Admin → Coverage: each objective needs at least 3 published questions.
+The 2027 Level I curriculum (10 topics, 102 modules, exam-weight ranges, study-week allocation) ships in `src/db/seed/official-2027.json` and is loaded by the seed and by deploy setup. A database that still holds the v1 sample curriculum has it replaced. More practice questions are added by CSV in Admin → Question coverage (template and export included).
 
-Students who already have a plan keep the version it was built from. Plans created after activation use the new version.
+## Homework files
+
+Handouts, student uploads and feedback files are stored in Postgres (`bytea`): 4 MB per file, PDF / Word / Excel / PowerPoint / CSV / text / PNG / JPG (checked by content, not just extension), 5 per upload slot, 100 MB per user. Downloads go through `/api/files/<id>`, which checks who is asking and always serves an attachment.
 
 ## Architecture
 
 - **Next.js 16 App Router, React 19, Tailwind 4, TypeScript.** Server Components render pages; mutations are Server Actions in `src/app/actions/*`.
-- **Domain engines are pure** (`src/domain/*`): plan generation, mastery, readiness, alerts, assessment and the curriculum CSV parser/diff. No framework or database imports, fully unit-tested.
+- **Domain engines are pure** (`src/domain/*`): the tracker (roadmap, pace, review queue, forecast, calibration), alerts, backup format and the question CSV parser. No framework or database imports, fully unit-tested.
 - **Services enforce authorization** (`src/services/*`): every function takes the authenticated `Actor` and checks role and ownership (a teacher sees only students in their own classes; admin functions refuse non-admins). They throw `ForbiddenError` / `NotFoundError` / `ValidationError`, which `runAction` turns into form messages.
 - **Data access layer** (`src/server/dal.ts`, `context.ts`): reads the signed session cookie, then re-loads the user from the database on every request (disabled users lose access immediately). `src/proxy.ts` does only optimistic redirects from the cookie; it is not a security boundary.
-- **Database:** Postgres via Drizzle ORM and the `postgres` driver (`src/db/*`), with `prepare: false` so pooled (PgBouncer-style) URLs work. Schema in `src/db/schema.ts`, SQL migrations in `drizzle/`. Curriculum versions are written atomically by `src/db/curriculum-writer.ts`.
+- **Database:** Postgres via Drizzle ORM and the `postgres` driver (`src/db/*`), with `prepare: false` so pooled (PgBouncer-style) URLs work. Schema in `src/db/schema.ts`, SQL migrations in `drizzle/`. The curriculum is written atomically by `src/db/curriculum-writer.ts`.
 - **Health check:** `GET /api/health` returns `{ ok, db, latencyMs }` after a `select 1` with a 3-second timeout; 503 when the database is unreachable. It reveals nothing else.
 
 ## Testing
 
 ```bash
-npm test                 # everything
+npm test                 # everything (unit + integration)
+npm run test:e2e         # Playwright, against a running app with the demo seed (see playwright.config.ts)
 npx vitest run src/domain   # pure unit tests only (no database needed)
 ```
 
@@ -126,20 +121,12 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests against a Postgres 1
 
 ## Deploying
 
-Import the repository in Vercel, connect a Neon Postgres database (Storage), set `SESSION_SECRET` (plus `ADMIN_EMAIL`/`ADMIN_PASSWORD` for the first admin) and deploy. The `vercel-build` script runs migrations and seeds the sample curriculum automatically before `next build`; no local tools are needed. Step-by-step: [`docs/cfa-platform/DEPLOY.md`](docs/cfa-platform/DEPLOY.md).
+Import the repository in Vercel, connect a Neon Postgres database (Storage), set `SESSION_SECRET` (plus `ADMIN_EMAIL`/`ADMIN_PASSWORD` for the first admin) and deploy. The `vercel-build` script runs migrations and loads the 2027 curriculum automatically before `next build`; no local tools are needed. Step-by-step: [`docs/cfa-platform/DEPLOY.md`](docs/cfa-platform/DEPLOY.md).
 
 ## Known limitations
 
-- The bundled curriculum is a sample (see Status). The official outline must be imported.
-- No question authoring UI yet: questions come from the seed. The coverage report shows gaps but can't yet link to "write a question for this objective". Flashcards and question bulk import aren't built.
-- No rate limiting, password reset, email verification or self-service password change.
-- No PDF import of the curriculum: CSV only.
-- No Postgres row-level security; authorization lives in the service layer (covered by integration tests).
-- Single academy (no multi-organization tenancy).
-- English only.
-
-## Documentation
-
-- [`docs/cfa-platform/PLAN.md`](docs/cfa-platform/PLAN.md): product and technical plan, curriculum fact base and open questions.
-- [`docs/cfa-platform/UX-DESIGN.md`](docs/cfa-platform/UX-DESIGN.md): design system and screens.
-- [`docs/cfa-platform/DEPLOY.md`](docs/cfa-platform/DEPLOY.md): deployment.
+- Practice questions are a small original set; add more in Admin → Question coverage.
+- Resetting a password does not sign out existing sessions (sessions are stateless 7-day tokens), and there is no self-service password change, password reset email or email verification.
+- No rate limiting yet (see Security notes).
+- Homework files live in the database; for larger files move storage to an object store (only `src/services/files.ts` touches the bytes).
+- Upgrading from v1 drops the old plan / learning-objective tables; v1 progress is not carried over.

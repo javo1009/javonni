@@ -96,6 +96,6 @@ test("the teacher sees how each student is pacing", async ({ page }) => {
 test("the admin sees platform health", async ({ page }) => {
   await login(page, "admin@ascent.demo");
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-  await page.getByRole("link", { name: "Question coverage" }).click();
+  await page.getByRole("link", { name: "Question coverage", exact: true }).click();
   await expect(page.getByText(/quantitative methods/i).first()).toBeVisible();
 });
