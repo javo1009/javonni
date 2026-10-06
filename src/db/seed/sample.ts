@@ -26,7 +26,10 @@ export async function seedSampleCurriculum(db: Db): Promise<{ created: boolean; 
       isSample: true,
       topics: SAMPLE_TOPICS.map((t) => ({
         ...t,
-        modules: t.modules.map((m) => ({ ...m, los: m.los.map(({ questions: _q, ...l }) => l) })),
+        modules: t.modules.map((m) => ({
+          ...m,
+          los: m.los.map((l) => ({ code: l.code, commandWord: l.commandWord, text: l.text, importance: l.importance })),
+        })),
       })),
     },
     { activate: true },

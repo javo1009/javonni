@@ -23,6 +23,7 @@ const RegisterSchema = z.object({
     .min(10, { error: "Use at least 10 characters." })
     .max(200, { error: "That password is too long." }),
   joinCode: z.string().trim().min(4, { error: "Enter the class code from your teacher." }).max(20),
+  timezone: z.string().max(64).optional(),
 });
 
 export async function login(_prev: AuthFormState, formData: FormData): Promise<AuthFormState> {
@@ -40,6 +41,7 @@ export async function register(_prev: AuthFormState, formData: FormData): Promis
     email: formData.get("email"),
     password: formData.get("password"),
     joinCode: formData.get("joinCode"),
+    timezone: formData.get("timezone") ?? undefined,
   });
   if (!parsed.success) return { fieldErrors: z.flattenError(parsed.error).fieldErrors };
   try {

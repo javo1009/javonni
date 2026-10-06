@@ -34,6 +34,8 @@ export const users = pgTable(
     name: text("name").notNull(),
     role: roleEnum("role").notNull(),
     passwordHash: text("password_hash").notNull(),
+    /** IANA zone used to decide what "today" means for this user. */
+    timezone: text("timezone").notNull().default("UTC"),
     createdAt: createdAt(),
     disabledAt: timestamp("disabled_at", { withTimezone: true }),
   },
