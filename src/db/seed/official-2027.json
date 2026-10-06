@@ -1,0 +1,605 @@
+{
+ "source": "Module titles and exam-weight ranges as supplied in the user's study-tracker sample, which cites the CFA Institute 2027 Level I topic outline and exam guide. Verify against the official documents before relying on them.",
+ "topics": [
+  {
+   "code": "QM",
+   "name": "Quantitative Methods",
+   "weightMin": 11,
+   "weightMax": 14,
+   "studyWeeks": 2,
+   "modules": [
+    {
+     "slug": "quantitative-methods-01",
+     "number": 1,
+     "title": "Returns of Financial Assets and Instruments"
+    },
+    {
+     "slug": "quantitative-methods-02",
+     "number": 2,
+     "title": "Types of Financial Returns"
+    },
+    {
+     "slug": "quantitative-methods-03",
+     "number": 3,
+     "title": "Benchmarking Returns"
+    },
+    {
+     "slug": "quantitative-methods-04",
+     "number": 4,
+     "title": "The Time Value of Money in Finance"
+    },
+    {
+     "slug": "quantitative-methods-05",
+     "number": 5,
+     "title": "Statistical Characteristics of Asset Returns"
+    },
+    {
+     "slug": "quantitative-methods-06",
+     "number": 6,
+     "title": "Statistical Distributions for Financial Asset Prices and Returns"
+    },
+    {
+     "slug": "quantitative-methods-07",
+     "number": 7,
+     "title": "Estimation and Hypothesis Testing"
+    },
+    {
+     "slug": "quantitative-methods-08",
+     "number": 8,
+     "title": "The Return and Risk of a Financial Portfolio"
+    },
+    {
+     "slug": "quantitative-methods-09",
+     "number": 9,
+     "title": "Simulation of Financial Asset Prices and Returns"
+    },
+    {
+     "slug": "quantitative-methods-10",
+     "number": 10,
+     "title": "Applications of Simple Linear Regression in Finance"
+    },
+    {
+     "slug": "quantitative-methods-11",
+     "number": 11,
+     "title": "Introduction to Financial Data Science"
+    }
+   ]
+  },
+  {
+   "code": "FSA",
+   "name": "Financial Statement Analysis",
+   "weightMin": 11,
+   "weightMax": 14,
+   "studyWeeks": 2,
+   "modules": [
+    {
+     "slug": "financial-statement-analysis-01",
+     "number": 1,
+     "title": "Introduction to Financial Statement Analysis"
+    },
+    {
+     "slug": "financial-statement-analysis-02",
+     "number": 2,
+     "title": "Analyzing Income Statements"
+    },
+    {
+     "slug": "financial-statement-analysis-03",
+     "number": 3,
+     "title": "Analyzing Balance Sheets"
+    },
+    {
+     "slug": "financial-statement-analysis-04",
+     "number": 4,
+     "title": "Analyzing Statements of Cash Flows I"
+    },
+    {
+     "slug": "financial-statement-analysis-05",
+     "number": 5,
+     "title": "Analyzing Statements of Cash Flows II"
+    },
+    {
+     "slug": "financial-statement-analysis-06",
+     "number": 6,
+     "title": "Analysis of Inventories"
+    },
+    {
+     "slug": "financial-statement-analysis-07",
+     "number": 7,
+     "title": "Analysis of Long-Term Assets"
+    },
+    {
+     "slug": "financial-statement-analysis-08",
+     "number": 8,
+     "title": "Topics in Long-Term Liabilities and Equity"
+    },
+    {
+     "slug": "financial-statement-analysis-09",
+     "number": 9,
+     "title": "Analysis of Income Taxes"
+    },
+    {
+     "slug": "financial-statement-analysis-10",
+     "number": 10,
+     "title": "Financial Reporting Quality"
+    },
+    {
+     "slug": "financial-statement-analysis-11",
+     "number": 11,
+     "title": "Financial Analysis Techniques"
+    },
+    {
+     "slug": "financial-statement-analysis-12",
+     "number": 12,
+     "title": "Introduction to Financial Statement Modeling"
+    }
+   ]
+  },
+  {
+   "code": "ECO",
+   "name": "Economics",
+   "weightMin": 6,
+   "weightMax": 9,
+   "studyWeeks": 1,
+   "modules": [
+    {
+     "slug": "economics-01",
+     "number": 1,
+     "title": "The Firm and Market Structures"
+    },
+    {
+     "slug": "economics-02",
+     "number": 2,
+     "title": "Understanding Business Cycles"
+    },
+    {
+     "slug": "economics-03",
+     "number": 3,
+     "title": "Fiscal Policy"
+    },
+    {
+     "slug": "economics-04",
+     "number": 4,
+     "title": "Monetary Policy"
+    },
+    {
+     "slug": "economics-05",
+     "number": 5,
+     "title": "Introduction to Geopolitics"
+    },
+    {
+     "slug": "economics-06",
+     "number": 6,
+     "title": "International Trade"
+    },
+    {
+     "slug": "economics-07",
+     "number": 7,
+     "title": "Capital Flows and the FX Market"
+    },
+    {
+     "slug": "economics-08",
+     "number": 8,
+     "title": "Exchange Rate Calculations"
+    }
+   ]
+  },
+  {
+   "code": "CF",
+   "name": "Corporate Finance",
+   "weightMin": 6,
+   "weightMax": 9,
+   "studyWeeks": 1,
+   "modules": [
+    {
+     "slug": "corporate-finance-01",
+     "number": 1,
+     "title": "Organizational Forms, Corporate Issuer Features, and Ownership"
+    },
+    {
+     "slug": "corporate-finance-02",
+     "number": 2,
+     "title": "Investors and Other Stakeholders"
+    },
+    {
+     "slug": "corporate-finance-03",
+     "number": 3,
+     "title": "Corporate Governance: Conflicts, Mechanisms, Risks, and Benefits"
+    },
+    {
+     "slug": "corporate-finance-04",
+     "number": 4,
+     "title": "Working Capital and Liquidity"
+    },
+    {
+     "slug": "corporate-finance-05",
+     "number": 5,
+     "title": "Capital Investments and Capital Allocation"
+    },
+    {
+     "slug": "corporate-finance-06",
+     "number": 6,
+     "title": "Capital Structure"
+    },
+    {
+     "slug": "corporate-finance-07",
+     "number": 7,
+     "title": "Business Models"
+    }
+   ]
+  },
+  {
+   "code": "EQ",
+   "name": "Equities",
+   "weightMin": 11,
+   "weightMax": 14,
+   "studyWeeks": 2,
+   "modules": [
+    {
+     "slug": "equities-01",
+     "number": 1,
+     "title": "Equity Instrument Features"
+    },
+    {
+     "slug": "equities-02",
+     "number": 2,
+     "title": "Equity Jurisdictions, Classes, and the Voting Process"
+    },
+    {
+     "slug": "equities-03",
+     "number": 3,
+     "title": "Equity Issuance and Trading"
+    },
+    {
+     "slug": "equities-04",
+     "number": 4,
+     "title": "Sources of Equity Returns"
+    },
+    {
+     "slug": "equities-05",
+     "number": 5,
+     "title": "Introduction to Equity Valuation"
+    },
+    {
+     "slug": "equities-06",
+     "number": 6,
+     "title": "Discounted Cash Flow (DCF) and Growth Models"
+    },
+    {
+     "slug": "equities-07",
+     "number": 7,
+     "title": "Relative Value Equity Valuation Approaches"
+    },
+    {
+     "slug": "equities-08",
+     "number": 8,
+     "title": "Financial Statement Forecasting in Equity Valuation"
+    },
+    {
+     "slug": "equities-09",
+     "number": 9,
+     "title": "Industry and Competitive Analysis"
+    },
+    {
+     "slug": "equities-10",
+     "number": 10,
+     "title": "Company Analysis: Past, Present, and Future"
+    },
+    {
+     "slug": "equities-11",
+     "number": 11,
+     "title": "Equity Analyst Research Reports"
+    },
+    {
+     "slug": "equities-12",
+     "number": 12,
+     "title": "The Capital Asset Pricing Model, Market Model, and Other Factor-Based Equity Models"
+    }
+   ]
+  },
+  {
+   "code": "FI",
+   "name": "Fixed Income",
+   "weightMin": 11,
+   "weightMax": 14,
+   "studyWeeks": 2,
+   "modules": [
+    {
+     "slug": "fixed-income-01",
+     "number": 1,
+     "title": "Fixed-Income Instrument Features"
+    },
+    {
+     "slug": "fixed-income-02",
+     "number": 2,
+     "title": "Fixed-Income Cash Flows and Types"
+    },
+    {
+     "slug": "fixed-income-03",
+     "number": 3,
+     "title": "Fixed-Income Issuance and Trading"
+    },
+    {
+     "slug": "fixed-income-04",
+     "number": 4,
+     "title": "Fixed-Income Markets for Corporate Issuers"
+    },
+    {
+     "slug": "fixed-income-05",
+     "number": 5,
+     "title": "Fixed-Income Markets for Government Issuers"
+    },
+    {
+     "slug": "fixed-income-06",
+     "number": 6,
+     "title": "Fixed-Income Bond Valuation: Prices and Yields"
+    },
+    {
+     "slug": "fixed-income-07",
+     "number": 7,
+     "title": "Yield and Yield Spread Measures for Fixed-Rate Bonds"
+    },
+    {
+     "slug": "fixed-income-08",
+     "number": 8,
+     "title": "Yield and Yield Spread Measures for Floating-Rate Instruments"
+    },
+    {
+     "slug": "fixed-income-09",
+     "number": 9,
+     "title": "The Term Structure of Interest Rates: Spot, Par, and Forward Curves"
+    },
+    {
+     "slug": "fixed-income-10",
+     "number": 10,
+     "title": "Interest Rate Risk and Return"
+    },
+    {
+     "slug": "fixed-income-11",
+     "number": 11,
+     "title": "Yield-Based Bond Duration Measures and Properties"
+    },
+    {
+     "slug": "fixed-income-12",
+     "number": 12,
+     "title": "Yield-Based Bond Convexity and Portfolio Properties"
+    },
+    {
+     "slug": "fixed-income-13",
+     "number": 13,
+     "title": "Curve-Based and Empirical Fixed-Income Risk Measures"
+    },
+    {
+     "slug": "fixed-income-14",
+     "number": 14,
+     "title": "Credit Risk"
+    },
+    {
+     "slug": "fixed-income-15",
+     "number": 15,
+     "title": "Credit Analysis for Government Issuers"
+    },
+    {
+     "slug": "fixed-income-16",
+     "number": 16,
+     "title": "Credit Analysis for Corporate Issuers"
+    },
+    {
+     "slug": "fixed-income-17",
+     "number": 17,
+     "title": "Fixed-Income Securitization"
+    },
+    {
+     "slug": "fixed-income-18",
+     "number": 18,
+     "title": "Asset-Backed Security (ABS) Instrument and Market Features"
+    },
+    {
+     "slug": "fixed-income-19",
+     "number": 19,
+     "title": "Mortgage-Backed Security (MBS) Instrument and Market Features"
+    }
+   ]
+  },
+  {
+   "code": "DER",
+   "name": "Derivatives and Risk Management",
+   "weightMin": 6,
+   "weightMax": 9,
+   "studyWeeks": 1,
+   "modules": [
+    {
+     "slug": "derivatives-and-risk-management-01",
+     "number": 1,
+     "title": "Derivative Instrument and Derivative Market Features"
+    },
+    {
+     "slug": "derivatives-and-risk-management-02",
+     "number": 2,
+     "title": "Forward Commitment and Contingent Claim Features and Instruments"
+    },
+    {
+     "slug": "derivatives-and-risk-management-03",
+     "number": 3,
+     "title": "Derivative Benefits, Risks, and Issuer and Investor Uses"
+    },
+    {
+     "slug": "derivatives-and-risk-management-04",
+     "number": 4,
+     "title": "Arbitrage, Replication, and the Cost of Carry in Pricing Derivatives"
+    },
+    {
+     "slug": "derivatives-and-risk-management-05",
+     "number": 5,
+     "title": "Maturities"
+    },
+    {
+     "slug": "derivatives-and-risk-management-06",
+     "number": 6,
+     "title": "Pricing and Valuation of Futures Contracts"
+    },
+    {
+     "slug": "derivatives-and-risk-management-07",
+     "number": 7,
+     "title": "Pricing and Valuation of Interest Rate and Other Swaps"
+    },
+    {
+     "slug": "derivatives-and-risk-management-08",
+     "number": 8,
+     "title": "Pricing and Valuation of Options"
+    },
+    {
+     "slug": "derivatives-and-risk-management-09",
+     "number": 9,
+     "title": "Option Replication Using Put–Call Parity"
+    },
+    {
+     "slug": "derivatives-and-risk-management-10",
+     "number": 10,
+     "title": "Valuing a Derivative Using a One-Period Binomial Model"
+    }
+   ]
+  },
+  {
+   "code": "ALT",
+   "name": "Alternative Investments",
+   "weightMin": 6,
+   "weightMax": 9,
+   "studyWeeks": 1,
+   "modules": [
+    {
+     "slug": "alternative-investments-01",
+     "number": 1,
+     "title": "Alternative Investment Features, Methods, and Structures"
+    },
+    {
+     "slug": "alternative-investments-02",
+     "number": 2,
+     "title": "Alternative Investment Performance and Returns"
+    },
+    {
+     "slug": "alternative-investments-03",
+     "number": 3,
+     "title": "Investments in Private Capital: Equity and Debt"
+    },
+    {
+     "slug": "alternative-investments-04",
+     "number": 4,
+     "title": "Real Estate and Infrastructure"
+    },
+    {
+     "slug": "alternative-investments-05",
+     "number": 5,
+     "title": "Natural Resources"
+    },
+    {
+     "slug": "alternative-investments-06",
+     "number": 6,
+     "title": "Hedge Funds"
+    },
+    {
+     "slug": "alternative-investments-07",
+     "number": 7,
+     "title": "Introduction to Digital Assets"
+    }
+   ]
+  },
+  {
+   "code": "PC",
+   "name": "Portfolio Construction",
+   "weightMin": 8,
+   "weightMax": 12,
+   "studyWeeks": 1,
+   "modules": [
+    {
+     "slug": "portfolio-construction-01",
+     "number": 1,
+     "title": "Portfolio Risk and Return: Part I"
+    },
+    {
+     "slug": "portfolio-construction-02",
+     "number": 2,
+     "title": "Portfolio Risk and Return: Part II"
+    },
+    {
+     "slug": "portfolio-construction-03",
+     "number": 3,
+     "title": "Portfolio Management: An Overview"
+    },
+    {
+     "slug": "portfolio-construction-04",
+     "number": 4,
+     "title": "Basics of Portfolio Planning and Construction"
+    },
+    {
+     "slug": "portfolio-construction-05",
+     "number": 5,
+     "title": "The Behavioral Biases of Individuals"
+    },
+    {
+     "slug": "portfolio-construction-06",
+     "number": 6,
+     "title": "Introduction to Risk Management"
+    }
+   ]
+  },
+  {
+   "code": "ETH",
+   "name": "Ethical and Professional Standards",
+   "weightMin": 10,
+   "weightMax": 15,
+   "studyWeeks": 1,
+   "modules": [
+    {
+     "slug": "ethical-and-professional-standards-01",
+     "number": 1,
+     "title": "Ethics and Trust in the Investment Profession"
+    },
+    {
+     "slug": "ethical-and-professional-standards-02",
+     "number": 2,
+     "title": "Code of Ethics and Standards of Professional Conduct"
+    },
+    {
+     "slug": "ethical-and-professional-standards-03",
+     "number": 3,
+     "title": "Guidance for Standard I: Professionalism"
+    },
+    {
+     "slug": "ethical-and-professional-standards-04",
+     "number": 4,
+     "title": "Guidance for Standard II: Integrity of Capital Markets"
+    },
+    {
+     "slug": "ethical-and-professional-standards-05",
+     "number": 5,
+     "title": "Guidance for Standard III: Duties to Clients"
+    },
+    {
+     "slug": "ethical-and-professional-standards-06",
+     "number": 6,
+     "title": "Guidance for Standard IV: Duties to Employers"
+    },
+    {
+     "slug": "ethical-and-professional-standards-07",
+     "number": 7,
+     "title": "Guidance for Standard V: Investment Analysis, Recommendations, and Actions"
+    },
+    {
+     "slug": "ethical-and-professional-standards-08",
+     "number": 8,
+     "title": "Guidance for Standard VI: Conflicts of Interest"
+    },
+    {
+     "slug": "ethical-and-professional-standards-09",
+     "number": 9,
+     "title": "Guidance for Standard VII: Responsibilities as a CFA Institute Member or CFA Candidate"
+    },
+    {
+     "slug": "ethical-and-professional-standards-10",
+     "number": 10,
+     "title": "Application of the Code and Standards: Level I"
+    }
+   ]
+  }
+ ]
+}

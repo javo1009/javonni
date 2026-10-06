@@ -1,17 +1,16 @@
-import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
-import { attempts, los, questionLos, questions } from "@/db/schema";
-import { masteryOf } from "@/domain/mastery";
-import { deriveLosStatus, type LosStatus } from "@/domain/status";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { attempts, moduleProgress, questions } from "@/db/schema";
+import { TRACKER } from "@/domain/tracker";
+import { assertStudent } from "./access";
 import { getActiveCurriculum } from "./curriculum";
-import { applyAttemptToProgress, loadProgress } from "./progress";
-import { ForbiddenError, NotFoundError, ValidationError, type Actor, type Db } from "./types";
+import { NotFoundError, ValidationError, type Actor, type Db } from "./types";
 
 export type PracticeScope =
-  | { kind: "los"; id: string }
   | { kind: "module"; id: string }
   | { kind: "topic"; id: string }
-  | { kind: "mixed" }
-  | { kind: "review" };
+  /** Chapters where the student's recorded score or platform results are weak. */
+  | { kind: "weak" }
+  | { kind: "mixed" };
 
 /** What the client sees: never the answer key or explanation. */
 export type PracticeQuestion = {
@@ -19,8 +18,8 @@ export type PracticeQuestion = {
   stem: string;
   options: { key: string; text: string }[];
   difficulty: number;
-  losId: string;
-  losCode: string;
+  moduleId: string;
+  moduleTitle: string;
   topicName: string;
 };
 
@@ -28,107 +27,100 @@ export type AnswerResult = {
   correct: boolean;
   correctKey: string;
   explanation: string;
-  losId: string;
-  losCode: string;
-  status: LosStatus;
-  mastery: number;
+  moduleId: string | null;
+  /** The student's running tally on this chapter's questions, including this answer. */
+  tally: { attempts: number; correct: number } | null;
 };
 
 const PRACTICE_MODES = ["practice", "timed", "mock"] as const;
 export type PracticeMode = (typeof PRACTICE_MODES)[number];
 
-function assertStudent(actor: Actor) {
-  if (actor.role !== "student") throw new ForbiddenError("Only students can practise.");
-}
-
 /**
- * Pick questions for a session. Priority: LOS needing review, then never-attempted,
- * then lowest mastery. Questions the student just answered are de-prioritised.
+ * Pick questions for a session. Prefers questions never answered or answered wrongly,
+ * chapters with weak scores, and heavier-weighted topics; avoids ones answered in the last two days.
  */
-export async function pickQuestions(
-  db: Db,
-  actor: Actor,
-  scope: PracticeScope,
-  count: number,
-  now = Date.now(),
-): Promise<PracticeQuestion[]> {
+export async function pickQuestions(db: Db, actor: Actor, scope: PracticeScope, count: number): Promise<PracticeQuestion[]> {
   assertStudent(actor);
   const n = Math.max(1, Math.min(30, Math.floor(count)));
-  const c = await getActiveCurriculum(db);
+  const cur = await getActiveCurriculum(db);
 
-  let losIds: string[];
+  let moduleIds: string[];
   switch (scope.kind) {
-    case "los":
-      if (!c.los.some((l) => l.id === scope.id)) throw new NotFoundError("Unknown learning objective.");
-      losIds = [scope.id];
-      break;
     case "module":
-      losIds = c.modules.find((m) => m.id === scope.id)?.losIds ?? [];
+      if (!cur.moduleById.has(scope.id)) throw new NotFoundError("Unknown chapter.");
+      moduleIds = [scope.id];
       break;
     case "topic":
-      losIds = c.los.filter((l) => c.topicByLos.get(l.id) === scope.id).map((l) => l.id);
+      if (!cur.topicById.has(scope.id)) throw new NotFoundError("Unknown topic.");
+      moduleIds = cur.modules.filter((m) => m.topicId === scope.id).map((m) => m.id);
       break;
     default:
-      losIds = c.los.map((l) => l.id);
+      moduleIds = cur.modules.map((m) => m.id);
   }
-  if (losIds.length === 0) throw new NotFoundError("Nothing to practise there yet.");
 
-  const progress = (await loadProgress(db, [actor.id])).get(actor.id)!;
   const rows = await db
+    .select({ id: questions.id, stem: questions.stem, options: questions.options, difficulty: questions.difficulty, moduleId: questions.moduleId })
+    .from(questions)
+    .where(and(eq(questions.status, "published"), inArray(questions.moduleId, moduleIds)));
+  if (rows.length === 0) throw new NotFoundError("There are no questions for that yet.");
+
+  const history = await db
     .select({
-      id: questions.id,
-      stem: questions.stem,
-      options: questions.options,
-      difficulty: questions.difficulty,
-      losId: questionLos.losId,
+      questionId: attempts.questionId,
+      lastCorrect: sql<boolean>`(array_agg(${attempts.correct} order by ${attempts.createdAt} desc))[1]`,
+      recent: sql<boolean>`bool_or(${attempts.createdAt} > now() - interval '2 days')`,
     })
-    .from(questionLos)
-    .innerJoin(questions, and(eq(questions.id, questionLos.questionId), eq(questions.status, "published")))
-    .where(inArray(questionLos.losId, losIds));
-  if (rows.length === 0) throw new NotFoundError("There are no questions for that scope yet.");
-
-  const recent = await db
-    .select({ questionId: attempts.questionId })
     .from(attempts)
-    .where(and(eq(attempts.studentId, actor.id), sql`${attempts.createdAt} > now() - interval '2 days'`));
-  const recentSet = new Set(recent.map((r) => r.questionId));
+    .where(eq(attempts.studentId, actor.id))
+    .groupBy(attempts.questionId);
+  const seen = new Map(history.map((h) => [h.questionId, h]));
+  const scores = new Map(
+    (await db.select({ moduleId: moduleProgress.moduleId, accuracy: moduleProgress.accuracy }).from(moduleProgress).where(eq(moduleProgress.studentId, actor.id))).map((r) => [
+      r.moduleId,
+      r.accuracy,
+    ]),
+  );
 
-  const losById = new Map(c.los.map((l) => [l.id, l]));
-  const topicName = new Map(c.topics.map((t) => [t.id, t.name]));
-  const score = (r: (typeof rows)[number]): number => {
-    const p = progress.get(r.losId);
-    const status = deriveLosStatus(p?.studied ?? false, p?.state ?? null, now);
-    const m = p && p.state.attempts > 0 ? masteryOf(p.state, now) : 0.5;
+  const score = (q: (typeof rows)[number]): number => {
+    const h = seen.get(q.id);
+    const acc = q.moduleId ? scores.get(q.moduleId) : null;
+    const weak = acc !== null && acc !== undefined && acc < TRACKER.weakScore;
+    const topic = q.moduleId ? cur.topicById.get(cur.moduleById.get(q.moduleId)!.topicId) : undefined;
     let s = 0;
-    if (scope.kind === "review") s += status === "review_due" ? 100 : status === "proficient" ? -50 : 0;
-    s += !p || p.state.attempts === 0 ? 30 : 0;
-    s += (1 - m) * 40;
-    if (recentSet.has(r.id)) s -= 60;
+    if (!h) s += 30;
+    else if (h.lastCorrect === false) s += 20;
+    if (h?.recent) s -= 60;
+    if (weak) s += scope.kind === "weak" ? 60 : 25;
+    else if (scope.kind === "weak") s -= 100;
+    if (topic) s += (topic.weightMin + topic.weightMax) / 2 / 2;
     return s;
   };
-  // Stable ordering: score desc, then id, then take at most 2 per LOS before repeating.
-  const ranked = [...rows].sort((a, b) => score(b) - score(a) || a.id.localeCompare(b.id));
+  const ranked = rows.filter((q) => scope.kind !== "weak" || score(q) > -50).sort((a, b) => score(b) - score(a) || a.id.localeCompare(b.id));
+  if (ranked.length === 0) throw new NotFoundError("No weak chapters with questions yet. Record some practice scores first.");
+
+  // At most two per chapter on the first sweep, so a set spreads across chapters.
   const picked: typeof rows = [];
-  const perLos = new Map<string, number>();
+  const perModule = new Map<string, number>();
   for (const cap of [2, 99]) {
-    for (const r of ranked) {
+    for (const q of ranked) {
       if (picked.length >= n) break;
-      if (picked.some((p) => p.id === r.id)) continue;
-      if ((perLos.get(r.losId) ?? 0) >= cap) continue;
-      picked.push(r);
-      perLos.set(r.losId, (perLos.get(r.losId) ?? 0) + 1);
+      if (picked.some((p) => p.id === q.id)) continue;
+      const k = q.moduleId ?? "";
+      if ((perModule.get(k) ?? 0) >= cap) continue;
+      picked.push(q);
+      perModule.set(k, (perModule.get(k) ?? 0) + 1);
     }
   }
-  return picked.map((r) => {
-    const l = losById.get(r.losId)!;
+  return picked.map((q) => {
+    const m = cur.moduleById.get(q.moduleId!)!;
     return {
-      id: r.id,
-      stem: r.stem,
-      options: r.options,
-      difficulty: r.difficulty,
-      losId: r.losId,
-      losCode: l.code,
-      topicName: topicName.get(c.topicByLos.get(r.losId)!) ?? "",
+      id: q.id,
+      stem: q.stem,
+      options: q.options,
+      difficulty: q.difficulty,
+      moduleId: m.id,
+      moduleTitle: m.title,
+      topicName: cur.topicById.get(m.topicId)?.name ?? "",
     };
   });
 }
@@ -136,60 +128,38 @@ export async function pickQuestions(
 type RecordInput = {
   questionId: string;
   chosenKey: string;
-  losId?: string;
   timeMs?: number | null;
   mode: "practice" | "timed" | "mock" | "homework";
   assignmentId?: string | null;
-  openBook?: boolean;
 };
 
-/**
- * Grade one answer, store the attempt and update mastery. Used by practice and,
- * with mode "homework", by the homework service. Returns the full reveal.
- */
+/** Grade one answer and store the attempt. Used by practice and, with mode "homework", by homework. */
 export async function recordAttempt(db: Db, actor: Actor, input: RecordInput, now = Date.now()): Promise<AnswerResult> {
   assertStudent(actor);
   const [q] = await db.select().from(questions).where(eq(questions.id, input.questionId)).limit(1);
   if (!q || q.status !== "published") throw new NotFoundError("Question not found.");
   if (!q.options.some((o) => o.key === input.chosenKey)) throw new ValidationError("That isn't one of the answer options.");
-
-  const links = await db
-    .select({ losId: questionLos.losId, isPrimary: questionLos.isPrimary })
-    .from(questionLos)
-    .where(eq(questionLos.questionId, q.id));
-  if (links.length === 0) throw new NotFoundError("Question is not linked to a learning objective.");
-  const link = input.losId ? links.find((l) => l.losId === input.losId) : (links.find((l) => l.isPrimary) ?? links[0]);
-  if (!link) throw new ValidationError("Question does not belong to that learning objective.");
-
   const correct = input.chosenKey === q.correctKey;
-  const difficulty = (q.difficulty === 1 || q.difficulty === 3 ? q.difficulty : 2) as 1 | 2 | 3;
-  const context = input.mode === "homework" ? "homework" : input.mode === "practice" ? "practice" : "timed";
-
-  const prog = await db.transaction(async (tx) => {
-    await tx.insert(attempts).values({
-      studentId: actor.id,
-      questionId: q.id,
-      losId: link.losId,
-      chosenKey: input.chosenKey,
-      correct,
-      timeMs: input.timeMs ?? null,
-      mode: input.mode,
-      assignmentId: input.assignmentId ?? null,
-      createdAt: new Date(now),
-    });
-    return applyAttemptToProgress(tx, actor.id, link.losId, { correct, difficulty, context, at: now, openBook: input.openBook });
-  });
-
-  const [l] = await db.select({ code: los.code }).from(los).where(eq(los.id, link.losId)).limit(1);
-  return {
+  await db.insert(attempts).values({
+    studentId: actor.id,
+    questionId: q.id,
+    moduleId: q.moduleId,
+    chosenKey: input.chosenKey,
     correct,
-    correctKey: q.correctKey,
-    explanation: q.explanation,
-    losId: link.losId,
-    losCode: l.code,
-    status: deriveLosStatus(prog.studied, prog.state, now),
-    mastery: masteryOf(prog.state, now),
-  };
+    timeMs: input.timeMs ?? null,
+    mode: input.mode,
+    assignmentId: input.assignmentId ?? null,
+    createdAt: new Date(now),
+  });
+  let tally: AnswerResult["tally"] = null;
+  if (q.moduleId) {
+    const [t] = await db
+      .select({ n: sql<number>`count(*)::int`, ok: sql<number>`count(*) filter (where ${attempts.correct})::int` })
+      .from(attempts)
+      .where(and(eq(attempts.studentId, actor.id), eq(attempts.moduleId, q.moduleId)));
+    tally = { attempts: t.n, correct: t.ok };
+  }
+  return { correct, correctKey: q.correctKey, explanation: q.explanation, moduleId: q.moduleId, tally };
 }
 
 /** Practice-session entry point: only non-homework modes are allowed here. */
@@ -201,12 +171,4 @@ export async function submitPracticeAnswer(
   const mode = input.mode ?? "practice";
   if (!PRACTICE_MODES.includes(mode)) throw new ValidationError("Unknown practice mode.");
   return recordAttempt(db, actor, { ...input, mode });
-}
-
-export async function questionsAnsweredToday(db: Db, studentId: string, dayStartMs: number): Promise<number> {
-  const [r] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(attempts)
-    .where(and(eq(attempts.studentId, studentId), sql`${attempts.createdAt} >= ${new Date(dayStartMs)}`, notInArray(attempts.mode, ["homework"])));
-  return r.n;
 }

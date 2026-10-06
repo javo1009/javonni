@@ -1,7 +1,7 @@
 // Runs before `next build` on Vercel (package.json "vercel-build"), so a deploy
 // needs no local tooling. Every step is idempotent:
 //   1. apply pending migrations
-//   2. seed the labelled sample curriculum if no curriculum is active
+//   2. load the 2027 Level I curriculum (102 modules) if no curriculum is active, plus sample questions
 //   3. create the first admin from ADMIN_EMAIL / ADMIN_PASSWORD if that user doesn't exist
 //   4. SEED_DEMO=1 only: create the demo class (shared demo password — throwaway deployments only)
 // Set SKIP_DB_SETUP=1 to skip everything (e.g. preview builds without a database).
@@ -11,7 +11,7 @@ import { databaseLikeEnvNames } from "../src/db/env";
 import { runMigrations } from "../src/db/migrate";
 import { users } from "../src/db/schema";
 import { DEMO_DOMAIN, seedDemo } from "../src/db/seed/demo";
-import { seedSampleCurriculum } from "../src/db/seed/sample";
+import { ensureOfficialCurriculum, seedSampleQuestions } from "../src/db/seed/official";
 import { createUser } from "../src/services/users";
 
 function fail(msg: string): never {
@@ -44,8 +44,14 @@ async function main() {
   await runMigrations(direct);
 
   const db = getDb(direct);
-  const sample = await seedSampleCurriculum(db);
-  console.log(sample.created ? "Deploy setup: seeded the sample curriculum (labelled as demo data)." : "Deploy setup: curriculum already present.");
+  const cur = await ensureOfficialCurriculum(db);
+  console.log(
+    cur.action === "kept"
+      ? "Deploy setup: an imported curriculum is active; kept it."
+      : `Deploy setup: ${cur.action === "created" ? "loaded" : "activated"} the 2027 Level I curriculum (10 topics, 102 modules).`,
+  );
+  const added = await seedSampleQuestions(db, cur.versionId);
+  if (added) console.log(`Deploy setup: added ${added} sample questions.`);
 
   const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   const adminPassword = process.env.ADMIN_PASSWORD;

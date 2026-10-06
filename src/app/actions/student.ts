@@ -1,194 +1,218 @@
 "use server";
 
+// Student write actions. Pages read through services; every write comes through here.
+// Actions take plain objects (or FormData for uploads) and return an ActionResult, never throw for user errors.
+
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import * as z from "zod";
-import type { PlanWarning } from "@/domain/types";
 import { runAction, type ActionResult } from "@/server/action";
 import { studentContext } from "@/server/context";
+import { attachSubmissionFile, removeSubmissionFile, type FileMeta } from "@/services/files";
 import { saveDraft, submitAssignment } from "@/services/homework";
-import { createPlan, logSession, replan, setItemStatus } from "@/services/plan";
-import { pickQuestions, submitPracticeAnswer, type AnswerResult, type PracticeQuestion } from "@/services/practice";
+import { pickQuestions, submitPracticeAnswer, type AnswerResult, type PracticeQuestion, type PracticeScope } from "@/services/practice";
+import { addMock, deleteMock, deleteSession, exportBackup, importBackup, logSession, updateChapter, updateSettings } from "@/services/tracker";
 
-/** Every student page reads plan/progress, so refresh the whole area after a write. */
-const refreshStudent = () => revalidatePath("/student", "layout");
+const refresh = () => revalidatePath("/student", "layout");
+const bad = (e: z.ZodError): ActionResult => ({ ok: false, error: e.issues[0]?.message ?? "Check the form and try again." });
+const uuid = z.uuid();
+const isoDate = z.iso.date({ error: "Enter a valid date." });
 
-const firstError = (e: z.ZodError) => e.issues[0]?.message ?? "Check the form and try again.";
+// ------------------------------------------------------------------ chapters
 
-// ------------------------------------------------------------- onboarding
-
-export type PlanFormState =
-  | {
-      error?: string;
-      fieldErrors?: Record<string, string[] | undefined>;
-      result?: { warnings: PlanWarning[]; plannedMinutes: number; days: number };
-    }
-  | undefined;
-
-const PlanSchema = z.object({
-  examDate: z.iso.date({ error: "Enter your exam date." }),
-  weeklyMinutes: z
-    .array(z.coerce.number({ error: "Enter minutes as a number." }).int({ error: "Use whole minutes." }).min(0).max(720, { error: "Keep each day to 12 hours or less." }))
-    .length(7),
-  blackoutDates: z.array(z.iso.date({ error: "A day off is not a valid date." })).max(120, { error: "That's too many days off." }),
+const ChapterSchema = z.object({
+  moduleId: uuid,
+  patch: z.object({
+    read: z.boolean().optional(),
+    practice: z.boolean().optional(),
+    review: z.boolean().optional(),
+    accuracy: z.number().min(0).max(100).nullable().optional(),
+    confidence: z.union([z.literal(1), z.literal(2), z.literal(3)]).nullable().optional(),
+    reviewedToday: z.boolean().optional(),
+  }),
 });
 
-export async function createPlanAction(_prev: PlanFormState, formData: FormData): Promise<PlanFormState> {
-  const { actor, db, today, now } = await studentContext();
-  const parsed = PlanSchema.safeParse({
-    examDate: formData.get("examDate"),
-    weeklyMinutes: Array.from({ length: 7 }, (_, i) => formData.get(`day${i}`) || "0"),
-    blackoutDates: formData.getAll("blackout").filter((v) => typeof v === "string" && v !== ""),
-  });
-  if (!parsed.success) return { fieldErrors: z.flattenError(parsed.error).fieldErrors };
-  const blackout = [...new Set(parsed.data.blackoutDates)].filter((d) => d >= today && d <= parsed.data.examDate);
-  const r = await runAction(() =>
-    createPlan(db, actor, { today, examDate: parsed.data.examDate, weeklyMinutes: parsed.data.weeklyMinutes, blackoutDates: blackout }, now),
-  );
-  if (!r.ok) return { error: r.error };
-  refreshStudent();
-  return {
-    result: {
-      warnings: r.data.warnings,
-      plannedMinutes: Number(r.data.summary.plannedMinutes) || 0,
-      days: Number(r.data.summary.days) || 0,
-    },
-  };
-}
-
-// ------------------------------------------------------------------ tasks
-
-const TaskStatusSchema = z.object({
-  itemId: z.uuid(),
-  status: z.enum(["todo", "done", "skipped"]),
-  actualMinutes: z.number().int().min(1).max(720).optional(),
-});
-
-export async function setTaskStatus(input: z.input<typeof TaskStatusSchema>): Promise<ActionResult> {
+/** Tick read/practice/reviewed, set the practice score or confidence for one chapter. */
+export async function setChapter(input: z.input<typeof ChapterSchema>): Promise<ActionResult> {
   const { actor, db, today } = await studentContext();
-  const parsed = TaskStatusSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: "Minutes must be a whole number between 1 and 720." };
-  const r = await runAction(async () => {
-    await setItemStatus(db, actor, parsed.data.itemId, parsed.data.status, { today, actualMinutes: parsed.data.actualMinutes });
-    return undefined;
-  });
-  if (r.ok) refreshStudent();
+  const p = ChapterSchema.safeParse(input);
+  if (!p.success) return bad(p.error);
+  const r = await runAction(async () => void (await updateChapter(db, actor, p.data.moduleId, p.data.patch, today)));
+  if (r.ok) refresh();
   return r;
 }
 
-export type LogTimeState = { ok?: boolean; message?: string; error?: string; fieldErrors?: Record<string, string[] | undefined> } | undefined;
+// ------------------------------------------------------------------ settings
 
-const LogSchema = z.object({
-  date: z.iso.date({ error: "Enter a valid date." }),
-  minutes: z.coerce
-    .number({ error: "Enter minutes as a number." })
-    .int({ error: "Use whole minutes." })
-    .min(5, { error: "Log at least 5 minutes." })
-    .max(720, { error: "Log 12 hours or less at a time." }),
-  note: z.string().max(300, { error: "Keep the note under 300 characters." }).optional(),
+const SettingsSchema = z.object({
+  examDate: isoDate.optional(),
+  weeklyTargetHours: z.number({ error: "Enter hours as a number." }).optional(),
 });
 
-export async function logStudyTime(_prev: LogTimeState, formData: FormData): Promise<LogTimeState> {
+export async function saveSettings(input: z.input<typeof SettingsSchema>): Promise<ActionResult> {
   const { actor, db, today } = await studentContext();
-  const parsed = LogSchema.safeParse({
-    date: formData.get("date"),
-    minutes: formData.get("minutes"),
-    note: (formData.get("note") as string | null) ?? undefined,
-  });
-  if (!parsed.success) return { fieldErrors: z.flattenError(parsed.error).fieldErrors };
-  const r = await runAction(() => logSession(db, actor, { today, ...parsed.data }));
-  if (!r.ok) return { error: r.error };
-  refreshStudent();
-  return { ok: true, message: `Logged ${parsed.data.minutes} min.` };
+  const p = SettingsSchema.safeParse(input);
+  if (!p.success) return bad(p.error);
+  const r = await runAction(async () => void (await updateSettings(db, actor, p.data, today)));
+  if (r.ok) refresh();
+  return r;
 }
 
-// ----------------------------------------------------------------- replan
+// --------------------------------------------------------------------- hours
 
-const ReplanSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("add_time"), extraMinutesPerWeek: z.number().int().min(15).max(600) }),
-  z.object({ kind: z.literal("drop_optional") }),
-  z.object({ kind: z.literal("as_is") }),
-]);
+const SessionSchema = z.object({
+  date: isoDate,
+  minutes: z.number({ error: "Enter the time studied." }).int({ error: "Use whole minutes." }),
+  topic: z.string().min(1, { error: "Choose a topic." }).max(80),
+  note: z.string().max(300).optional(),
+  source: z.enum(["manual", "timer"]).optional(),
+});
 
-/** On success this redirects to the plan, which shows the new plan's warnings; it only returns on error. */
-export async function replanAction(choice: z.input<typeof ReplanSchema>): Promise<ActionResult> {
-  const { actor, db, today, now } = await studentContext();
-  const parsed = ReplanSchema.safeParse(choice);
-  if (!parsed.success) return { ok: false, error: "That catch-up option isn't available." };
-  const r = await runAction(() => replan(db, actor, parsed.data, today, now));
-  if (!r.ok) return r;
-  refreshStudent();
-  redirect("/student/plan?rebuilt=1");
+export async function addStudySession(input: z.input<typeof SessionSchema>): Promise<ActionResult> {
+  const { actor, db, today } = await studentContext();
+  const p = SessionSchema.safeParse(input);
+  if (!p.success) return bad(p.error);
+  const r = await runAction(async () => void (await logSession(db, actor, p.data, today)));
+  if (r.ok) refresh();
+  return r;
 }
 
-// --------------------------------------------------------------- practice
+export async function removeStudySession(sessionId: string): Promise<ActionResult> {
+  const { actor, db } = await studentContext();
+  if (!uuid.safeParse(sessionId).success) return { ok: false, error: "Session not found." };
+  const r = await runAction(async () => void (await deleteSession(db, actor, sessionId)));
+  if (r.ok) refresh();
+  return r;
+}
+
+// --------------------------------------------------------------------- mocks
+
+const MockSchema = z.object({
+  date: isoDate,
+  score: z.number({ error: "Enter a score from 0 to 100." }),
+  note: z.string().max(300).optional(),
+});
+
+export async function addMockResult(input: z.input<typeof MockSchema>): Promise<ActionResult> {
+  const { actor, db, today } = await studentContext();
+  const p = MockSchema.safeParse(input);
+  if (!p.success) return bad(p.error);
+  const r = await runAction(async () => void (await addMock(db, actor, p.data, today)));
+  if (r.ok) refresh();
+  return r;
+}
+
+export async function removeMockResult(mockId: string): Promise<ActionResult> {
+  const { actor, db } = await studentContext();
+  if (!uuid.safeParse(mockId).success) return { ok: false, error: "Mock result not found." };
+  const r = await runAction(async () => void (await deleteMock(db, actor, mockId)));
+  if (r.ok) refresh();
+  return r;
+}
+
+// -------------------------------------------------------------------- backup
+
+/** The backup as JSON text (same format as the sample dashboard's export). */
+export async function exportBackupAction(): Promise<ActionResult<{ filename: string; json: string }>> {
+  const { actor, db, today } = await studentContext();
+  return runAction(async () => ({ filename: `cfa-progress-${today}.json`, json: JSON.stringify(await exportBackup(db, actor, today), null, 2) }));
+}
+
+const MAX_BACKUP_CHARS = 1_000_000;
+
+/** Replace the student's progress with an uploaded backup. */
+export async function importBackupAction(jsonText: string): Promise<ActionResult<{ chapters: number; sessions: number; mocks: number; skipped: unknown }>> {
+  const { actor, db, today } = await studentContext();
+  if (typeof jsonText !== "string" || jsonText.length > MAX_BACKUP_CHARS) return { ok: false, error: "That backup file is too large." };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(jsonText);
+  } catch {
+    return { ok: false, error: "That file isn't valid JSON." };
+  }
+  const r = await runAction(() => importBackup(db, actor, raw, today));
+  if (r.ok) refresh();
+  return r;
+}
+
+// ------------------------------------------------------------------ practice
 
 const ScopeSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("los"), id: z.uuid() }),
-  z.object({ kind: z.literal("module"), id: z.uuid() }),
-  z.object({ kind: z.literal("topic"), id: z.uuid() }),
+  z.object({ kind: z.literal("module"), id: uuid }),
+  z.object({ kind: z.literal("topic"), id: uuid }),
+  z.object({ kind: z.literal("weak") }),
   z.object({ kind: z.literal("mixed") }),
-  z.object({ kind: z.literal("review") }),
 ]);
 
-export async function loadPracticeQuestions(scope: z.input<typeof ScopeSchema>, count: number): Promise<ActionResult<PracticeQuestion[]>> {
-  const { actor, db, now } = await studentContext();
-  const parsed = ScopeSchema.safeParse(scope);
-  const n = z.number().int().min(1).max(30).safeParse(count);
-  if (!parsed.success || !n.success) return { ok: false, error: "That practice set doesn't exist." };
-  return runAction(() => pickQuestions(db, actor, parsed.data, n.data, now));
+export async function startPractice(scope: PracticeScope, count = 10): Promise<ActionResult<PracticeQuestion[]>> {
+  const { actor, db } = await studentContext();
+  const p = ScopeSchema.safeParse(scope);
+  if (!p.success || !Number.isInteger(count) || count < 1 || count > 40) return { ok: false, error: "Choose what to practise." };
+  return runAction(() => pickQuestions(db, actor, p.data, count));
 }
 
 const AnswerSchema = z.object({
-  questionId: z.uuid(),
+  questionId: uuid,
   chosenKey: z.string().min(1).max(4),
   timeMs: z.number().int().min(0).max(3_600_000).nullable().optional(),
+  mode: z.enum(["practice", "timed", "mock"]).optional(),
 });
 
-export async function answerPracticeQuestion(input: z.input<typeof AnswerSchema>): Promise<ActionResult<AnswerResult>> {
+/** Marks one answer and reveals the key and explanation. Run only after the student commits an answer. */
+export async function answerPractice(input: z.input<typeof AnswerSchema>): Promise<ActionResult<AnswerResult>> {
   const { actor, db } = await studentContext();
-  const parsed = AnswerSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
-  // No revalidation here: the session keeps its own state, and other pages render fresh on navigation.
-  return runAction(() => submitPracticeAnswer(db, actor, { ...parsed.data, mode: "practice" }));
-}
-
-// --------------------------------------------------------------- homework
-
-const HomeworkSchema = z.object({
-  assignmentId: z.uuid(),
-  answers: z
-    .array(
-      z.object({
-        itemId: z.uuid(),
-        chosenKey: z.string().min(1).max(4).nullable().optional(),
-        textAnswer: z.string().max(10_000, { error: "That answer is too long." }).nullable().optional(),
-      }),
-    )
-    .max(100),
-});
-
-export async function saveHomeworkDraft(input: z.input<typeof HomeworkSchema>): Promise<ActionResult<{ savedAt: number }>> {
-  const { actor, db } = await studentContext();
-  const parsed = HomeworkSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
-  const r = await runAction(async () => {
-    await saveDraft(db, actor, parsed.data.assignmentId, parsed.data.answers);
-    return { savedAt: Date.now() };
-  });
-  // Only the inbox chip changes ("In progress"); the open form keeps its own state.
-  if (r.ok) revalidatePath("/student/homework");
+  const p = AnswerSchema.safeParse(input);
+  if (!p.success) return bad(p.error) as ActionResult<AnswerResult>;
+  const r = await runAction(() => submitPracticeAnswer(db, actor, p.data));
+  // Practice scores feed the chapter table, but don't refresh mid-session; the page refreshes when it ends.
   return r;
 }
 
-export async function submitHomework(input: z.input<typeof HomeworkSchema>): Promise<ActionResult> {
+/** Call when a practice session ends so Overview / chapter scores pick up the new results. */
+export async function finishPractice(): Promise<void> {
+  await studentContext();
+  refresh();
+}
+
+// ------------------------------------------------------------------ homework
+
+const AnswersSchema = z
+  .array(z.object({ itemId: uuid, chosenKey: z.string().max(4).nullable().optional(), textAnswer: z.string().max(10_000).nullable().optional() }))
+  .max(80);
+
+export async function saveHomeworkDraft(assignmentId: string, answers: z.input<typeof AnswersSchema>): Promise<ActionResult> {
   const { actor, db } = await studentContext();
-  const parsed = HomeworkSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
-  const r = await runAction(async () => {
-    await submitAssignment(db, actor, parsed.data.assignmentId, parsed.data.answers);
-    return undefined;
-  });
-  if (r.ok) refreshStudent();
+  const p = AnswersSchema.safeParse(answers);
+  if (!uuid.safeParse(assignmentId).success || !p.success) return { ok: false, error: "Check your answers and try again." };
+  return runAction(async () => void (await saveDraft(db, actor, assignmentId, p.data)));
+}
+
+export async function submitHomework(assignmentId: string, answers: z.input<typeof AnswersSchema>): Promise<ActionResult<{ status: string }>> {
+  const { actor, db } = await studentContext();
+  const p = AnswersSchema.safeParse(answers);
+  if (!uuid.safeParse(assignmentId).success || !p.success) return { ok: false, error: "Check your answers and try again." };
+  const r = await runAction(async () => ({ status: (await submitAssignment(db, actor, assignmentId, p.data)).status }));
+  if (r.ok) refresh();
+  return r;
+}
+
+/** FormData: assignmentId, itemId, file. One file per call (client loops for several). */
+export async function uploadSubmissionFile(formData: FormData): Promise<ActionResult<FileMeta>> {
+  const { actor, db } = await studentContext();
+  const assignmentId = String(formData.get("assignmentId") ?? "");
+  const itemId = String(formData.get("itemId") ?? "");
+  const file = formData.get("file");
+  if (!uuid.safeParse(assignmentId).success || !uuid.safeParse(itemId).success) return { ok: false, error: "Homework not found." };
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Choose a file to upload." };
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const r = await runAction(() => attachSubmissionFile(db, actor, { assignmentId, itemId, file: { name: file.name, bytes } }));
+  if (r.ok) refresh();
+  return r;
+}
+
+export async function deleteSubmissionFile(fileId: string): Promise<ActionResult> {
+  const { actor, db } = await studentContext();
+  if (!uuid.safeParse(fileId).success) return { ok: false, error: "File not found." };
+  const r = await runAction(async () => void (await removeSubmissionFile(db, actor, fileId)));
+  if (r.ok) refresh();
   return r;
 }

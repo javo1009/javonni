@@ -1,14 +1,27 @@
 import { randomInt } from "node:crypto";
 import { and, asc, eq, inArray, max, sql } from "drizzle-orm";
-import { attempts, classes, enrollments, questions, studySessions, users } from "@/db/schema";
+import { attempts, classes, enrollments, mockResults, moduleProgress, studentProfiles, studySessions, users } from "@/db/schema";
 import { evaluateAlerts, groupAlerts, type Alert } from "@/domain/alerts";
-import { addDays, startOfWeek, type ISODate } from "@/domain/dates";
-import { applyAttempt, newMasteryState, type MasteryState } from "@/domain/mastery";
-import { computeReadiness, type Readiness } from "@/domain/readiness";
-import { getActiveCurriculum, type Curriculum } from "./curriculum";
-import { adherenceWindow } from "./plan";
-import { buildSnapshot, loadProgress, type StudentSnapshot } from "./progress";
-import { ForbiddenError, NotFoundError, ValidationError, type Actor, type Db } from "./types";
+import { addDays, diffDays, isValidDate, type ISODate } from "@/domain/dates";
+import {
+  TRACKER,
+  buildRoadmap,
+  expectedChaptersRead,
+  hoursInRange,
+  mockStats,
+  topicProgress,
+  totals,
+  weekBounds,
+  weightLabel,
+  type MockStats,
+  type PaceStatus,
+  type Totals,
+} from "@/domain/tracker";
+import { assertClassAccess } from "./access";
+import { getActiveCurriculum } from "./curriculum";
+import { homeworkStats } from "./homework";
+import { MAX_EXAM_DATE, MIN_EXAM_DATE, defaultProfile, loadChapterStates, minutesByDate, validateWeeklyHours, type Profile } from "./tracker";
+import { ForbiddenError, ValidationError, type Actor, type Db } from "./types";
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I
 
@@ -16,75 +29,107 @@ export function generateJoinCode(): string {
   return Array.from({ length: 6 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join("");
 }
 
-/** The class, if the actor teaches it (admins can see every class). */
-export async function assertClassAccess(db: Db, actor: Actor, classId: string) {
-  if (actor.role === "student") throw new ForbiddenError();
-  const [cls] = await db.select().from(classes).where(eq(classes.id, classId)).limit(1);
-  if (!cls) throw new NotFoundError("Class not found.");
-  if (actor.role !== "admin" && cls.teacherId !== actor.id) throw new ForbiddenError();
-  return cls;
-}
+export type ClassSettings = { name: string; examDate: ISODate | null; planStart: ISODate | null; weeklyTargetHours: number };
 
-/** Teachers may view students enrolled in one of their classes; students only themselves. */
-export async function assertCanViewStudent(db: Db, actor: Actor, studentId: string) {
-  if (actor.role === "admin") return;
-  if (actor.role === "student") {
-    if (actor.id !== studentId) throw new ForbiddenError();
-    return;
+function validateClassSettings(s: Partial<ClassSettings>, today: ISODate) {
+  if (s.name !== undefined && (s.name.trim().length < 2 || s.name.trim().length > 80)) throw new ValidationError("Class name must be 2–80 characters.");
+  if (s.examDate) {
+    if (!isValidDate(s.examDate)) throw new ValidationError("Enter a valid exam date.");
+    if (s.examDate < MIN_EXAM_DATE || s.examDate > MAX_EXAM_DATE) throw new ValidationError("The 2027 curriculum applies to exams from February to December 2027.");
+    if (diffDays(today, s.examDate) < 7) throw new ValidationError("The exam date must be at least a week away.");
   }
-  const [row] = await db
-    .select({ id: classes.id })
-    .from(enrollments)
-    .innerJoin(classes, eq(classes.id, enrollments.classId))
-    .where(and(eq(enrollments.studentId, studentId), eq(classes.teacherId, actor.id)))
-    .limit(1);
-  if (!row) throw new ForbiddenError();
+  if (s.planStart) {
+    if (!isValidDate(s.planStart)) throw new ValidationError("Enter a valid roadmap start date.");
+    if (s.examDate && diffDays(s.planStart, s.examDate) < 28) throw new ValidationError("The roadmap needs at least four weeks before the exam.");
+  }
+  if (s.weeklyTargetHours !== undefined) validateWeeklyHours(s.weeklyTargetHours);
 }
 
-export async function createClass(db: Db, actor: Actor, input: { name: string; examDate?: ISODate | null }) {
+export async function createClass(db: Db, actor: Actor, input: Partial<ClassSettings> & { name: string }, today: ISODate = new Date().toISOString().slice(0, 10)) {
   if (actor.role !== "teacher" && actor.role !== "admin") throw new ForbiddenError("Only teachers can create classes.");
-  const name = input.name.trim();
-  if (name.length < 2 || name.length > 80) throw new ValidationError("Class name must be 2–80 characters.");
+  validateClassSettings(input, today);
   for (let i = 0; i < 5; i++) {
     try {
       const [row] = await db
         .insert(classes)
-        .values({ name, teacherId: actor.id, joinCode: generateJoinCode(), examDate: input.examDate ?? null })
+        .values({
+          name: input.name.trim(),
+          teacherId: actor.id,
+          joinCode: generateJoinCode(),
+          examDate: input.examDate ?? null,
+          planStart: input.planStart ?? null,
+          weeklyTargetMinutes: Math.round((input.weeklyTargetHours ?? TRACKER.defaultWeeklyMinutes / 60) * 60),
+        })
         .returning();
       return row;
     } catch (e) {
-      if ((e as { code?: string; cause?: { code?: string } }).cause?.code !== "23505" && (e as { code?: string }).code !== "23505") throw e;
+      const code = (e as { code?: string; cause?: { code?: string } }).code ?? (e as { cause?: { code?: string } }).cause?.code;
+      if (code !== "23505") throw e;
     }
   }
   throw new Error("Could not generate a unique class code.");
 }
 
+/**
+ * Change a class's name and defaults. With `applyToStudents`, every enrolled student's
+ * exam date, roadmap start and weekly target are set to the class's values too.
+ */
+export async function updateClassSettings(
+  db: Db,
+  actor: Actor,
+  classId: string,
+  input: Partial<ClassSettings> & { applyToStudents?: boolean },
+  today: ISODate,
+) {
+  const cls = await assertClassAccess(db, actor, classId);
+  validateClassSettings(input, today);
+  const next = {
+    name: input.name?.trim() ?? cls.name,
+    examDate: input.examDate === undefined ? cls.examDate : input.examDate,
+    planStart: input.planStart === undefined ? cls.planStart : input.planStart,
+    weeklyTargetMinutes: input.weeklyTargetHours === undefined ? cls.weeklyTargetMinutes : Math.round(input.weeklyTargetHours * 60),
+  };
+  if (next.examDate && next.planStart && diffDays(next.planStart, next.examDate) < 28) throw new ValidationError("The roadmap needs at least four weeks before the exam.");
+  await db.transaction(async (tx) => {
+    await tx.update(classes).set(next).where(eq(classes.id, classId));
+    if (input.applyToStudents) {
+      const roster = await tx.select({ id: enrollments.studentId }).from(enrollments).where(eq(enrollments.classId, classId));
+      for (const r of roster) {
+        const base = await defaultProfile(tx as unknown as Db, r.id, today);
+        const values = {
+          studentId: r.id,
+          examDate: next.examDate ?? base.examDate,
+          planStart: next.planStart ?? base.planStart,
+          weeklyTargetMinutes: next.weeklyTargetMinutes,
+          updatedAt: new Date(),
+        };
+        await tx.insert(studentProfiles).values(values).onConflictDoUpdate({ target: studentProfiles.studentId, set: values });
+      }
+    }
+  });
+}
+
 export async function listClasses(db: Db, actor: Actor) {
   if (actor.role === "student") {
     return db
-      .select({
-        id: classes.id,
-        name: classes.name,
-        examDate: classes.examDate,
-        joinCode: sql<string>`''`,
-        students: sql<number>`0`,
-      })
+      .select({ id: classes.id, name: classes.name, examDate: classes.examDate, joinCode: sql<string>`''`, students: sql<number>`0` })
       .from(enrollments)
       .innerJoin(classes, eq(classes.id, enrollments.classId))
       .where(eq(enrollments.studentId, actor.id));
   }
-  const rows = await db
+  return db
     .select({
       id: classes.id,
       name: classes.name,
       examDate: classes.examDate,
+      planStart: classes.planStart,
+      weeklyTargetMinutes: classes.weeklyTargetMinutes,
       joinCode: classes.joinCode,
       students: sql<number>`(select count(*)::int from ${enrollments} e where e.class_id = ${classes.id})`,
     })
     .from(classes)
     .where(actor.role === "admin" ? eq(classes.archived, false) : and(eq(classes.teacherId, actor.id), eq(classes.archived, false)))
     .orderBy(asc(classes.createdAt));
-  return rows;
 }
 
 export async function getRoster(db: Db, actor: Actor, classId: string) {
@@ -97,204 +142,201 @@ export async function getRoster(db: Db, actor: Actor, classId: string) {
     .orderBy(asc(users.name));
 }
 
-/** Readiness at the end of each of the last `weeks` weeks, replaying attempts in order. */
-export function weeklyReadinessFromAttempts(
-  c: Curriculum,
-  rows: { losId: string; correct: boolean; at: number; difficulty: number; mode: string }[],
-  today: ISODate,
-  weeks: number,
-): number[] {
-  const sorted = [...rows].sort((a, b) => a.at - b.at);
-  const ends: number[] = [];
-  const thisWeek = startOfWeek(today);
-  for (let w = weeks - 1; w >= 0; w--) {
-    const end = addDays(thisWeek, -7 * w + 7); // exclusive end of week
-    const [y, m, d] = end.split("-").map(Number);
-    ends.push(Date.UTC(y, m - 1, d));
-  }
-  const states = new Map<string, MasteryState>();
-  const out: number[] = [];
-  let i = 0;
-  for (const end of ends) {
-    while (i < sorted.length && sorted[i].at < end) {
-      const r = sorted[i++];
-      const difficulty = (r.difficulty === 1 || r.difficulty === 3 ? r.difficulty : 2) as 1 | 2 | 3;
-      const context = r.mode === "homework" ? "homework" : r.mode === "practice" ? "practice" : "timed";
-      states.set(r.losId, applyAttempt(states.get(r.losId) ?? newMasteryState(), { correct: r.correct, difficulty, context, at: r.at }));
-    }
-    out.push(computeReadiness(c.topics, c.modules, c.los, states, Math.min(end, Date.now())).mid);
-  }
-  return out;
-}
-
+// ------------------------------------------------------------- overview
 export type StudentRow = {
   id: string;
   name: string;
   email: string;
+  joinedOn: ISODate;
+  examDate: ISODate;
+  weeklyTargetHours: number;
   lastActive: ISODate | null;
-  readiness: Readiness;
-  snapshot: StudentSnapshot;
-  adherence: { planned: number; done: number };
-  hours7d: number;
+  totals: Totals;
+  /** Per topic id. */
+  topics: Record<string, { read: number; total: number; complete: number; avgAccuracy: number | null; scored: number }>;
+  hoursThisWeek: number;
+  hours14d: number;
+  chaptersExpected: number;
+  /** Positive: behind the roadmap. */
+  behindBy: number;
+  mocks: MockStats;
+  scored: number;
+  avgAccuracy: number | null;
   missedHomework: number;
-  weeklyReadiness: number[];
   alerts: Alert[];
 };
 
 export type ClassOverview = {
-  cls: { id: string; name: string; joinCode: string; examDate: string | null };
-  curriculum: Curriculum;
+  cls: { id: string; name: string; joinCode: string; examDate: string | null; planStart: string | null; weeklyTargetHours: number };
+  topics: { id: string; name: string; weightLabel: string }[];
   students: StudentRow[];
   attention: Alert[][];
   kpis: {
-    readinessMid: number;
-    adherencePct: number | null;
-    activeThisWeek: number;
     total: number;
+    avgReadPct: number;
+    avgCompletePct: number;
+    avgHoursThisWeek: number;
+    avgTargetHours: number;
+    activeThisWeek: number;
+    behindRoadmap: number;
+    avgLatestMock: number | null;
     homeworkOnTimePct: number | null;
   };
-  /** Class-average mastery per topic and a "teach next" suggestion. */
-  topicAverages: { topicId: string; mastery: number }[];
-  teachNext: { topicId: string; reason: string } | null;
+  /** Class-wide per topic, in study order. */
+  topicSummary: { topicId: string; avgReadPct: number; avgAccuracy: number | null; scoredStudents: number }[];
+  /** The topic with the lowest average practice score (or lowest coverage when nobody has scores). */
+  weakestTopic: { topicId: string; reason: string } | null;
 };
 
-/**
- * Everything the cockpit and heatmap need, in a handful of queries.
- * `missedByStudent` and `onTime` come from the homework service.
- */
-export async function getClassOverview(
-  db: Db,
-  actor: Actor,
-  classId: string,
-  today: ISODate,
-  homework: { missedByStudent: Map<string, number>; onTimePct: number | null },
-  nowMs = Date.now(),
-): Promise<ClassOverview> {
+const dateOf = (d: Date | string | null): ISODate | null => (d ? (typeof d === "string" ? d : d.toISOString().slice(0, 10)) : null);
+const latest = (...ds: (ISODate | null)[]) => ds.filter((d): d is ISODate => !!d).sort().pop() ?? null;
+const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+
+/** Everything the cockpit needs for one class, in a fixed number of queries. */
+export async function getClassOverview(db: Db, actor: Actor, classId: string, today: ISODate, nowMs = Date.now()): Promise<ClassOverview> {
   const cls = await assertClassAccess(db, actor, classId);
+  const cur = await getActiveCurriculum(db);
   const roster = await db
-    .select({ id: users.id, name: users.name, email: users.email })
+    .select({ id: users.id, name: users.name, email: users.email, joinedAt: enrollments.joinedAt })
     .from(enrollments)
     .innerJoin(users, eq(users.id, enrollments.studentId))
     .where(eq(enrollments.classId, classId))
     .orderBy(asc(users.name));
-  const c = await getActiveCurriculum(db);
   const ids = roster.map((r) => r.id);
-  const progress = await loadProgress(db, ids);
+  const hw = await homeworkStats(db, classId, new Date(nowMs));
 
-  const lastSession = ids.length
-    ? await db
-        .select({ studentId: studySessions.studentId, d: max(studySessions.date) })
-        .from(studySessions)
-        .where(inArray(studySessions.studentId, ids))
-        .groupBy(studySessions.studentId)
-    : [];
-  const lastAttempt = ids.length
-    ? await db
-        .select({ studentId: attempts.studentId, at: max(attempts.createdAt) })
-        .from(attempts)
-        .where(inArray(attempts.studentId, ids))
-        .groupBy(attempts.studentId)
-    : [];
-  const attemptRows = ids.length
-    ? await db
-        .select({
-          studentId: attempts.studentId,
-          losId: attempts.losId,
-          correct: attempts.correct,
-          createdAt: attempts.createdAt,
-          mode: attempts.mode,
-          difficulty: questions.difficulty,
-        })
-        .from(attempts)
-        .innerJoin(questions, eq(questions.id, attempts.questionId))
-        .where(inArray(attempts.studentId, ids))
-    : [];
-  const week7From = addDays(today, -6);
-  const recentMinutes = ids.length
-    ? await db
-        .select({ studentId: studySessions.studentId, m: sql<number>`coalesce(sum(${studySessions.minutes}),0)::int` })
-        .from(studySessions)
-        .where(and(inArray(studySessions.studentId, ids), sql`${studySessions.date} >= ${week7From}`))
-        .groupBy(studySessions.studentId)
-    : [];
+  const [profileRows, states, sessions, mocks, lastProgress, lastAttempt] = ids.length
+    ? await Promise.all([
+        db.select().from(studentProfiles).where(inArray(studentProfiles.studentId, ids)),
+        loadChapterStates(db, ids),
+        db
+          .select({ studentId: studySessions.studentId, date: studySessions.date, minutes: sql<number>`sum(${studySessions.minutes})::int` })
+          .from(studySessions)
+          .where(inArray(studySessions.studentId, ids))
+          .groupBy(studySessions.studentId, studySessions.date),
+        db.select().from(mockResults).where(inArray(mockResults.studentId, ids)),
+        db.select({ studentId: moduleProgress.studentId, at: max(moduleProgress.updatedAt) }).from(moduleProgress).where(inArray(moduleProgress.studentId, ids)).groupBy(moduleProgress.studentId),
+        db.select({ studentId: attempts.studentId, at: max(attempts.createdAt) }).from(attempts).where(inArray(attempts.studentId, ids)).groupBy(attempts.studentId),
+      ])
+    : [[], new Map(), [], [], [], []];
 
-  const students: StudentRow[] = [];
+  const classDefault: Profile = {
+    examDate: cls.examDate ?? TRACKER.defaultExamDate,
+    planStart: cls.planStart ?? today,
+    weeklyTargetMinutes: cls.weeklyTargetMinutes,
+  };
+  const week = weekBounds(today);
+  const rows: StudentRow[] = [];
   for (const r of roster) {
-    const snap = buildSnapshot(c, progress.get(r.id)!, nowMs);
-    const ls = lastSession.find((x) => x.studentId === r.id)?.d ?? null;
-    const laAt = lastAttempt.find((x) => x.studentId === r.id)?.at ?? null;
-    const la = laAt ? new Date(laAt).toISOString().slice(0, 10) : null;
-    const lastActive = [ls, la].filter(Boolean).sort().pop() ?? null;
-    const adherence = await adherenceWindow(db, r.id, addDays(today, -13), today);
-    const weekly = weeklyReadinessFromAttempts(
-      c,
-      attemptRows
-        .filter((a) => a.studentId === r.id)
-        .map((a) => ({ losId: a.losId, correct: a.correct, at: a.createdAt.getTime(), difficulty: a.difficulty, mode: a.mode })),
-      today,
-      4,
+    const p = profileRows.find((x) => x.studentId === r.id);
+    const profile: Profile = p ? { examDate: p.examDate, planStart: p.planStart, weeklyTargetMinutes: p.weeklyTargetMinutes } : classDefault;
+    const st = (states as Map<string, Map<string, import("@/domain/tracker").ChapterState>>).get(r.id)!;
+    const progress = topicProgress(cur.topics, cur.modules, st);
+    const tot = totals(cur.topics, progress);
+    const roadmap = buildRoadmap({ planStart: profile.planStart, examDate: profile.examDate, topics: cur.topics });
+    const expected = expectedChaptersRead(roadmap, progress, today);
+    const byDate = minutesByDate(sessions.filter((s) => s.studentId === r.id));
+    const myMocks = mocks.filter((m) => m.studentId === r.id);
+    const scored = [...progress.values()].reduce((s, t) => s + t.scored, 0);
+    const accSum = [...progress.values()].reduce((s, t) => s + (t.avgAccuracy ?? 0) * t.scored, 0);
+    const avgAccuracy = scored ? Math.round(accSum / scored) : null;
+    const lastSessionDate = [...byDate.keys()].sort().pop() ?? null;
+    const lastActive = latest(
+      lastSessionDate,
+      dateOf(lastProgress.find((x) => x.studentId === r.id)?.at ?? null),
+      dateOf(lastAttempt.find((x) => x.studentId === r.id)?.at ?? null),
+      myMocks.map((m) => m.date).sort().pop() ?? null,
     );
-    const missed = homework.missedByStudent.get(r.id) ?? 0;
+    const joinedOn = dateOf(r.joinedAt)!;
+    const weeklyTargetHours = profile.weeklyTargetMinutes / 60;
+    const hours14d = hoursInRange(byDate, addDays(today, -13), today);
+    const mockScores = [...myMocks].sort((a, b) => a.date.localeCompare(b.date)).map((m) => m.score);
     const alerts = evaluateAlerts({
       studentId: r.id,
       name: r.name,
       today,
+      joinedOn,
       lastActiveDate: lastActive,
-      plannedMinutes14d: adherence.planned,
-      doneMinutes14d: adherence.done,
-      readinessWeekly: weekly,
-      missedHomework: missed,
-      mockScores: [],
+      planStart: profile.planStart,
+      weeklyTargetMinutes: profile.weeklyTargetMinutes,
+      minutes14d: Math.round(hours14d * 60),
+      chaptersRead: tot.read,
+      chaptersExpected: expected,
+      missedHomework: hw.missedByStudent.get(r.id) ?? 0,
+      mockScores,
+      scoredChapters: scored,
+      avgAccuracy,
     });
-    students.push({
-      ...r,
+    rows.push({
+      id: r.id,
+      name: r.name,
+      email: r.email,
+      joinedOn,
+      examDate: profile.examDate,
+      weeklyTargetHours,
       lastActive,
-      readiness: snap.readiness,
-      snapshot: snap,
-      adherence,
-      hours7d: Math.round(((recentMinutes.find((x) => x.studentId === r.id)?.m ?? 0) / 60) * 10) / 10,
-      missedHomework: missed,
-      weeklyReadiness: weekly,
+      totals: tot,
+      topics: Object.fromEntries(
+        [...progress].map(([id, t]) => [id, { read: t.read, total: t.total, complete: t.complete, avgAccuracy: t.avgAccuracy, scored: t.scored }]),
+      ),
+      hoursThisWeek: hoursInRange(byDate, week.start, week.end),
+      hours14d,
+      chaptersExpected: expected,
+      behindBy: expected - tot.read,
+      mocks: mockStats(myMocks),
+      scored,
+      avgAccuracy,
+      missedHomework: hw.missedByStudent.get(r.id) ?? 0,
       alerts,
     });
   }
 
-  const n = students.length;
-  const planned = students.reduce((s, x) => s + x.adherence.planned, 0);
-  const done = students.reduce((s, x) => s + Math.min(x.adherence.done, x.adherence.planned), 0);
-  const topicAverages = c.topics.map((t) => ({
-    topicId: t.id,
-    mastery: n ? students.reduce((s, x) => s + (x.snapshot.topicStats.get(t.id)?.mastery ?? 0), 0) / n : 0,
-  }));
-  // Teach next: biggest gap weighted by exam weight.
-  let teachNext: ClassOverview["teachNext"] = null;
-  if (n) {
-    const scored = c.topics
-      .map((t) => {
-        const avg = topicAverages.find((a) => a.topicId === t.id)!.mastery;
-        return { t, avg, score: ((t.weightMin + t.weightMax) / 2) * (1 - avg) };
-      })
-      .sort((a, b) => b.score - a.score);
-    const top = scored[0];
-    teachNext = {
-      topicId: top.t.id,
-      reason: `Class average ${Math.round(top.avg * 100)}% on a ${top.t.weightMin}–${top.t.weightMax}% exam-weight topic.`,
+  const topicSummary = cur.topics.map((t) => {
+    const withScores = rows.filter((s) => s.topics[t.id]?.avgAccuracy !== null && s.topics[t.id]?.avgAccuracy !== undefined);
+    return {
+      topicId: t.id,
+      avgReadPct: rows.length ? Math.round(avg(rows.map((s) => (s.topics[t.id].total ? (s.topics[t.id].read / s.topics[t.id].total) * 100 : 0)))) : 0,
+      avgAccuracy: withScores.length ? Math.round(avg(withScores.map((s) => s.topics[t.id].avgAccuracy as number))) : null,
+      scoredStudents: withScores.length,
     };
+  });
+  let weakest: ClassOverview["weakestTopic"] = null;
+  const scoredTopics = topicSummary.filter((t) => t.avgAccuracy !== null);
+  if (scoredTopics.length) {
+    const w = [...scoredTopics].sort((a, b) => (a.avgAccuracy as number) - (b.avgAccuracy as number))[0];
+    weakest = { topicId: w.topicId, reason: `Lowest average practice score in the class: ${w.avgAccuracy}% across ${w.scoredStudents} student${w.scoredStudents === 1 ? "" : "s"}.` };
+  } else if (rows.length) {
+    const w = [...topicSummary].sort((a, b) => a.avgReadPct - b.avgReadPct)[0];
+    weakest = { topicId: w.topicId, reason: `Least covered topic so far: ${w.avgReadPct}% of chapters read on average.` };
   }
+  const mockLatest = rows.map((s) => s.mocks.latest).filter((x): x is number => x !== null);
 
   return {
-    cls: { id: cls.id, name: cls.name, joinCode: cls.joinCode, examDate: cls.examDate },
-    curriculum: c,
-    students,
-    attention: groupAlerts(students.flatMap((s) => s.alerts)),
-    kpis: {
-      readinessMid: n ? Math.round(students.reduce((s, x) => s + x.readiness.mid, 0) / n) : 0,
-      adherencePct: planned > 0 ? Math.round((done / planned) * 100) : null,
-      activeThisWeek: students.filter((s) => s.lastActive && s.lastActive >= week7From).length,
-      total: n,
-      homeworkOnTimePct: homework.onTimePct,
+    cls: {
+      id: cls.id,
+      name: cls.name,
+      joinCode: cls.joinCode,
+      examDate: cls.examDate,
+      planStart: cls.planStart,
+      weeklyTargetHours: cls.weeklyTargetMinutes / 60,
     },
-    topicAverages,
-    teachNext,
+    topics: cur.topics.map((t) => ({ id: t.id, name: t.name, weightLabel: weightLabel(t) })),
+    students: rows,
+    attention: groupAlerts(rows.flatMap((s) => s.alerts)),
+    kpis: {
+      total: rows.length,
+      avgReadPct: Math.round(avg(rows.map((s) => s.totals.readPct))),
+      avgCompletePct: Math.round(avg(rows.map((s) => s.totals.completePct))),
+      avgHoursThisWeek: Math.round(avg(rows.map((s) => s.hoursThisWeek)) * 10) / 10,
+      avgTargetHours: Math.round(avg(rows.map((s) => s.weeklyTargetHours)) * 10) / 10,
+      activeThisWeek: rows.filter((s) => s.lastActive && s.lastActive >= addDays(today, -6)).length,
+      behindRoadmap: rows.filter((s) => s.alerts.some((a) => a.kind === "behind_roadmap")).length,
+      avgLatestMock: mockLatest.length ? Math.round(avg(mockLatest) * 10) / 10 : null,
+      homeworkOnTimePct: hw.onTimePct,
+    },
+    topicSummary,
+    weakestTopic: weakest,
   };
 }
+
+export type { PaceStatus };

@@ -1,7 +1,7 @@
 import {
   boolean,
   date,
-  doublePrecision,
+  customType,
   index,
   integer,
   jsonb,
@@ -20,10 +20,12 @@ const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull(
 
 export const roleEnum = pgEnum("role", ["student", "teacher", "admin"]);
 export const questionStatusEnum = pgEnum("question_status", ["draft", "review", "published"]);
-export const planItemStatusEnum = pgEnum("plan_item_status", ["todo", "done", "skipped"]);
 export const attemptModeEnum = pgEnum("attempt_mode", ["practice", "timed", "mock", "homework"]);
 export const assignmentStatusEnum = pgEnum("assignment_status", ["draft", "assigned"]);
 export const submissionStatusEnum = pgEnum("submission_status", ["in_progress", "submitted", "graded"]);
+export const fileKindEnum = pgEnum("file_kind", ["assignment", "submission", "feedback"]);
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
 
 // ---------------------------------------------------------------- identity
 export const users = pgTable(
@@ -52,6 +54,10 @@ export const classes = pgTable(
       .references(() => users.id),
     joinCode: text("join_code").notNull(),
     examDate: date("exam_date", { mode: "string" }),
+    /** Roadmap start shared by the cohort; students joining later inherit it. */
+    planStart: date("plan_start", { mode: "string" }),
+    /** Default weekly study target for students in the class, in minutes. */
+    weeklyTargetMinutes: integer("weekly_target_minutes").notNull().default(600),
     archived: boolean("archived").notNull().default(false),
     createdAt: createdAt(),
   },
@@ -99,6 +105,8 @@ export const topics = pgTable(
     order: integer("order").notNull(),
     difficulty: integer("difficulty").notNull().default(2),
     spread: boolean("spread").notNull().default(false),
+    /** Weeks of the first pass this topic gets at the reference runway (scaled for others). */
+    studyWeeks: integer("study_weeks").notNull().default(1),
   },
   (t) => [uniqueIndex("topics_version_code_uq").on(t.versionId, t.code)],
 );
@@ -112,9 +120,13 @@ export const modules = pgTable(
       .references(() => topics.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     order: integer("order").notNull(),
+    /** Position within the topic as printed in the curriculum (1-based). */
+    number: integer("number").notNull().default(1),
+    /** Stable id such as "quantitative-methods-04"; used to restore tracker backups. */
+    slug: text("slug"),
     estMinutes: integer("est_minutes").notNull().default(180),
   },
-  (t) => [index("modules_topic_idx").on(t.topicId)],
+  (t) => [index("modules_topic_idx").on(t.topicId), uniqueIndex("modules_topic_slug_uq").on(t.topicId, t.slug)],
 );
 
 export const los = pgTable(
@@ -142,69 +154,51 @@ export const questions = pgTable("questions", {
   explanation: text("explanation").notNull(),
   difficulty: integer("difficulty").notNull().default(2),
   status: questionStatusEnum("status").notNull().default("draft"),
+  /** The learning module the question belongs to. */
+  moduleId: uuid("module_id").references(() => modules.id, { onDelete: "set null" }),
+  /** "sample" for bundled demo questions, "authored" for the academy's own. */
+  source: text("source").notNull().default("authored"),
   authorId: uuid("author_id").references(() => users.id),
   createdAt: createdAt(),
+}, (t) => [index("questions_module_idx").on(t.moduleId)]);
+
+// ---------------------------------------------------------------- tracker
+/** One row per student: the settings the dashboard header edits. */
+export const studentProfiles = pgTable("student_profiles", {
+  studentId: uuid("student_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  examDate: date("exam_date", { mode: "string" }).notNull(),
+  /** First day of the student's roadmap; expected hours accrue from here. */
+  planStart: date("plan_start", { mode: "string" }).notNull(),
+  weeklyTargetMinutes: integer("weekly_target_minutes").notNull().default(600),
+  createdAt: createdAt(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const questionLos = pgTable(
-  "question_los",
+/** Chapter tracking: read, did questions, reviewed, plus a practice score. */
+export const moduleProgress = pgTable(
+  "module_progress",
   {
-    questionId: uuid("question_id")
-      .notNull()
-      .references(() => questions.id, { onDelete: "cascade" }),
-    losId: uuid("los_id")
-      .notNull()
-      .references(() => los.id, { onDelete: "cascade" }),
-    isPrimary: boolean("is_primary").notNull().default(true),
-  },
-  (t) => [primaryKey({ columns: [t.questionId, t.losId] }), index("question_los_los_idx").on(t.losId)],
-);
-
-// -------------------------------------------------------------------- plan
-export const studyPlans = pgTable(
-  "study_plans",
-  {
-    id: id(),
     studentId: uuid("student_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    versionId: uuid("version_id")
+    moduleId: uuid("module_id")
       .notNull()
-      .references(() => curriculumVersions.id),
-    startDate: date("start_date", { mode: "string" }).notNull(),
-    examDate: date("exam_date", { mode: "string" }).notNull(),
-    weeklyMinutes: jsonb("weekly_minutes").$type<number[]>().notNull(),
-    blackoutDates: jsonb("blackout_dates").$type<string[]>().notNull().default([]),
-    active: boolean("active").notNull().default(true),
-    warnings: jsonb("warnings").$type<{ code: string; message: string }[]>().notNull().default([]),
-    summary: jsonb("summary").$type<Record<string, number | string>>().notNull().default({}),
-    createdAt: createdAt(),
+      .references(() => modules.id, { onDelete: "cascade" }),
+    read: boolean("read").notNull().default(false),
+    practice: boolean("practice").notNull().default(false),
+    review: boolean("review").notNull().default(false),
+    /** Practice score in percent, entered by the student; null until recorded. */
+    accuracy: integer("accuracy"),
+    /** Self-rated confidence: 1 shaky, 2 okay, 3 solid. */
+    confidence: integer("confidence"),
+    /** Student-local dates; null when unknown (e.g. restored from a backup). */
+    readOn: date("read_on", { mode: "string" }),
+    reviewedOn: date("reviewed_on", { mode: "string" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("study_plans_student_idx").on(t.studentId, t.active)],
-);
-
-export const planItems = pgTable(
-  "plan_items",
-  {
-    id: id(),
-    planId: uuid("plan_id")
-      .notNull()
-      .references(() => studyPlans.id, { onDelete: "cascade" }),
-    date: date("date", { mode: "string" }).notNull(),
-    type: text("type").notNull(),
-    phase: text("phase").notNull(),
-    title: text("title").notNull(),
-    minutes: integer("minutes").notNull(),
-    topicId: uuid("topic_id").references(() => topics.id),
-    moduleId: uuid("module_id").references(() => modules.id),
-    losIds: jsonb("los_ids").$type<string[]>().notNull().default([]),
-    part: integer("part"),
-    parts: integer("parts"),
-    status: planItemStatusEnum("status").notNull().default("todo"),
-    completedAt: timestamp("completed_at", { withTimezone: true }),
-    actualMinutes: integer("actual_minutes"),
-  },
-  (t) => [index("plan_items_plan_date_idx").on(t.planId, t.date)],
+  (t) => [primaryKey({ columns: [t.studentId, t.moduleId] })],
 );
 
 export const studySessions = pgTable(
@@ -214,9 +208,11 @@ export const studySessions = pgTable(
     studentId: uuid("student_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    planItemId: uuid("plan_item_id").references(() => planItems.id, { onDelete: "set null" }),
     date: date("date", { mode: "string" }).notNull(),
     minutes: integer("minutes").notNull(),
+    /** A topic name, or "Mixed review" / "Mock exam". */
+    topic: text("topic").notNull().default(""),
+    /** "manual", "timer" or "backup". */
     source: text("source").notNull().default("manual"),
     note: text("note"),
     createdAt: createdAt(),
@@ -224,29 +220,22 @@ export const studySessions = pgTable(
   (t) => [index("study_sessions_student_date_idx").on(t.studentId, t.date)],
 );
 
-// ---------------------------------------------------------- learning state
-export const losProgress = pgTable(
-  "los_progress",
+export const mockResults = pgTable(
+  "mock_results",
   {
+    id: id(),
     studentId: uuid("student_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    losId: uuid("los_id")
-      .notNull()
-      .references(() => los.id, { onDelete: "cascade" }),
-    alpha: doublePrecision("alpha").notNull().default(1),
-    beta: doublePrecision("beta").notNull().default(1),
-    lastAt: timestamp("last_at", { withTimezone: true }),
-    activeDays: integer("active_days").notNull().default(0),
-    lastDay: date("last_day", { mode: "string" }),
-    attempts: integer("attempts").notNull().default(0),
-    everProficient: boolean("ever_proficient").notNull().default(false),
-    studied: boolean("studied").notNull().default(false),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    date: date("date", { mode: "string" }).notNull(),
+    score: real("score").notNull(),
+    note: text("note"),
+    createdAt: createdAt(),
   },
-  (t) => [primaryKey({ columns: [t.studentId, t.losId] })],
+  (t) => [index("mock_results_student_date_idx").on(t.studentId, t.date)],
 );
 
+/** Answers to questions in the bank (practice and homework). */
 export const attempts = pgTable(
   "attempts",
   {
@@ -257,9 +246,7 @@ export const attempts = pgTable(
     questionId: uuid("question_id")
       .notNull()
       .references(() => questions.id),
-    losId: uuid("los_id")
-      .notNull()
-      .references(() => los.id),
+    moduleId: uuid("module_id").references(() => modules.id, { onDelete: "set null" }),
     chosenKey: text("chosen_key").notNull(),
     correct: boolean("correct").notNull(),
     timeMs: integer("time_ms"),
@@ -352,6 +339,36 @@ export const submissionAnswers = pgTable(
     feedback: text("feedback"),
   },
   (t) => [uniqueIndex("submission_answers_uq").on(t.submissionId, t.itemId)],
+);
+
+// ------------------------------------------------------------------- files
+/**
+ * Homework files, stored in Postgres so deployments need no extra storage service.
+ * kind "assignment" = handed out by the teacher; "submission" = the student's completed
+ * work for a file item; "feedback" = marked-up work the teacher returns.
+ * Never select `data` in listings: only the download route reads it.
+ */
+export const files = pgTable(
+  "files",
+  {
+    id: id(),
+    kind: fileKindEnum("kind").notNull(),
+    uploaderId: uuid("uploader_id")
+      .notNull()
+      .references(() => users.id),
+    assignmentId: uuid("assignment_id")
+      .notNull()
+      .references(() => assignments.id, { onDelete: "cascade" }),
+    submissionId: uuid("submission_id").references(() => submissions.id, { onDelete: "cascade" }),
+    /** The file item a submission file answers. */
+    itemId: uuid("item_id").references(() => assignmentItems.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    contentType: text("content_type").notNull(),
+    size: integer("size").notNull(),
+    data: bytea("data").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("files_assignment_kind_idx").on(t.assignmentId, t.kind), index("files_submission_idx").on(t.submissionId)],
 );
 
 // -------------------------------------------------------------- governance

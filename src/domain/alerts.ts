@@ -1,25 +1,33 @@
-// Teacher alert rules. Pure: takes a per-student snapshot, returns evidence-bearing alerts.
-// See docs/cfa-platform/PLAN.md §4.6.
+// Teacher alert rules over tracker data. Pure: takes a per-student snapshot and returns
+// alerts that each carry the evidence shown to the teacher (docs/cfa-platform/PLAN.md §4.6).
 
 import { diffDays, type ISODate } from "./dates";
 
-export type AlertKind = "inactive" | "behind_plan" | "stagnating" | "missed_homework" | "mock_drop";
+export type AlertKind = "inactive" | "behind_hours" | "behind_roadmap" | "missed_homework" | "mock_drop" | "low_scores";
 export type AlertSeverity = "high" | "medium";
 
 export type StudentSnapshot = {
   studentId: string;
   name: string;
   today: ISODate;
+  /** Day the student joined; brand-new students aren't flagged for having no activity. */
+  joinedOn: ISODate;
+  /** Most recent study session, chapter update, practice answer or mock. */
   lastActiveDate: ISODate | null;
-  /** Planned vs. done minutes over the last 14 days. */
-  plannedMinutes14d: number;
-  doneMinutes14d: number;
-  /** Weekly readiness midpoints, oldest first (last 4 weeks ideally). */
-  readinessWeekly: number[];
+  planStart: ISODate;
+  weeklyTargetMinutes: number;
+  /** Minutes studied in the last 14 days. */
+  minutes14d: number;
+  chaptersRead: number;
+  /** Chapters the roadmap expects to be read by today. */
+  chaptersExpected: number;
   /** Homeworks past due and not submitted (last 30 days). */
   missedHomework: number;
   /** Mock scores in percent, oldest first. */
   mockScores: number[];
+  /** Chapters with a recorded practice score, and their mean. */
+  scoredChapters: number;
+  avgAccuracy: number | null;
 };
 
 export type Alert = {
@@ -33,20 +41,30 @@ export type Alert = {
 
 export const ALERT_CONFIG = {
   inactiveDays: 5,
-  adherenceFloor: 0.6,
-  minPlannedForAdherence: 120,
-  stagnationWeeks: 3,
-  stagnationDelta: 1,
+  /** New students aren't flagged for having no activity during this many days... */
+  graceDays: 3,
+  /** ...or for being behind a roadmap that started before they joined, during this many. */
+  roadmapGraceDays: 7,
+  /** Share of planned hours below which a student is "behind" on hours. */
+  hoursFloor: 0.5,
+  minWindowDays: 4,
+  roadmapBehind: 3,
+  roadmapBehindHigh: 6,
   missedHomework: 2,
   mockDrop: 5,
+  lowScore: 60,
+  minScored: 3,
 };
+
+const hours = (m: number) => Math.round((m / 60) * 10) / 10;
 
 export function evaluateAlerts(s: StudentSnapshot, cfg = ALERT_CONFIG): Alert[] {
   const out: Alert[] = [];
   const base = { studentId: s.studentId, name: s.name };
+  const sinceJoin = diffDays(s.joinedOn, s.today);
 
   const idle = s.lastActiveDate ? diffDays(s.lastActiveDate, s.today) : null;
-  if (idle === null || idle >= cfg.inactiveDays) {
+  if (idle === null ? sinceJoin >= cfg.graceDays : idle >= cfg.inactiveDays) {
     out.push({
       ...base,
       kind: "inactive",
@@ -55,32 +73,29 @@ export function evaluateAlerts(s: StudentSnapshot, cfg = ALERT_CONFIG): Alert[] 
     });
   }
 
-  if (s.plannedMinutes14d >= cfg.minPlannedForAdherence) {
-    const adherence = s.doneMinutes14d / s.plannedMinutes14d;
-    if (adherence < cfg.adherenceFloor) {
-      const behindH = Math.round(((s.plannedMinutes14d - s.doneMinutes14d) / 60) * 10) / 10;
+  // Compare with the hours planned over the part of the last 14 days the student has been on the plan.
+  const windowStart = s.planStart > s.joinedOn ? s.planStart : s.joinedOn;
+  const windowDays = Math.min(14, diffDays(windowStart, s.today) + 1);
+  if (windowDays >= cfg.minWindowDays) {
+    const planned = (s.weeklyTargetMinutes / 7) * windowDays;
+    if (planned > 0 && s.minutes14d / planned < cfg.hoursFloor) {
       out.push({
         ...base,
-        kind: "behind_plan",
-        severity: adherence < 0.4 ? "high" : "medium",
-        evidence: `${Math.round(adherence * 100)}% of planned study done over 2 weeks (${behindH} h behind).`,
+        kind: "behind_hours",
+        severity: s.minutes14d / planned < cfg.hoursFloor / 2 ? "high" : "medium",
+        evidence: `Logged ${hours(s.minutes14d)} h of ${hours(planned)} h planned in the last ${windowDays} days.`,
       });
     }
   }
 
-  const w = s.readinessWeekly;
-  if (w.length >= cfg.stagnationWeeks + 1) {
-    const recent = w.slice(-(cfg.stagnationWeeks + 1));
-    const gain = recent[recent.length - 1] - recent[0];
-    // Flat at zero just means no practice yet; "inactive" already covers that.
-    if (Math.abs(gain) < cfg.stagnationDelta && recent.some((v) => v > 0)) {
-      out.push({
-        ...base,
-        kind: "stagnating",
-        severity: "medium",
-        evidence: `Readiness flat at ~${recent[recent.length - 1]} for ${cfg.stagnationWeeks} weeks.`,
-      });
-    }
+  const behind = s.chaptersExpected - s.chaptersRead;
+  if (behind >= cfg.roadmapBehind && sinceJoin >= cfg.roadmapGraceDays) {
+    out.push({
+      ...base,
+      kind: "behind_roadmap",
+      severity: behind >= cfg.roadmapBehindHigh ? "high" : "medium",
+      evidence: `${s.chaptersRead} chapters read; the roadmap expects ${s.chaptersExpected} by now (${behind} behind).`,
+    });
   }
 
   if (s.missedHomework >= cfg.missedHomework) {
@@ -100,9 +115,18 @@ export function evaluateAlerts(s: StudentSnapshot, cfg = ALERT_CONFIG): Alert[] 
         ...base,
         kind: "mock_drop",
         severity: "medium",
-        evidence: `Latest mock ${last}% — down ${Math.round(prev - last)} points from the previous one.`,
+        evidence: `Latest mock ${last}%, down ${Math.round(prev - last)} points from the previous one.`,
       });
     }
+  }
+
+  if (s.avgAccuracy !== null && s.scoredChapters >= cfg.minScored && s.avgAccuracy < cfg.lowScore) {
+    out.push({
+      ...base,
+      kind: "low_scores",
+      severity: "medium",
+      evidence: `Practice scores average ${Math.round(s.avgAccuracy)}% across ${s.scoredChapters} chapters.`,
+    });
   }
   return out;
 }

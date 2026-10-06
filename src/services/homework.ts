@@ -2,49 +2,49 @@ import { and, asc, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import {
   assignmentItems,
   assignments,
+  files,
   classes,
   enrollments,
-  questionLos,
   questions,
   submissionAnswers,
   submissions,
   users,
 } from "@/db/schema";
-import { assertClassAccess } from "./classes";
+import { assertClassAccess, assertStudentAssignment, assertTeacherAssignment, isTargeted } from "./access";
+import { listAssignmentFiles, listSubmissionFiles, type FileMeta } from "./files";
 import { recordAttempt } from "./practice";
 import { ForbiddenError, NotFoundError, ValidationError, type Actor, type Db } from "./types";
 
 export type Target = { kind: "class" } | { kind: "students"; studentIds: string[] };
 export type Policies = { showAnswers: "never" | "after_due" | "immediately"; allowLate: boolean };
-export type ItemInput = { kind: "mcq"; questionId: string; points?: number } | { kind: "text"; prompt: string; points?: number };
+export type ItemInput =
+  | { kind: "mcq"; questionId: string; points?: number }
+  | { kind: "text"; prompt: string; points?: number }
+  /** The student uploads completed work (a file) for the teacher to mark. */
+  | { kind: "file"; prompt: string; points?: number };
 
 export type StudentHomeworkStatus = "not_started" | "in_progress" | "submitted" | "graded";
 
 type AssignmentRow = typeof assignments.$inferSelect;
 
-function isTargeted(a: Pick<AssignmentRow, "target">, studentId: string) {
-  return a.target.kind === "class" || a.target.studentIds.includes(studentId);
-}
-
-/** Pick `count` published questions spread across the given objectives (round-robin). */
-export async function assembleQuestions(db: Db, actor: Actor, input: { losIds: string[]; count: number; excludeIds?: string[] }) {
+/** Pick `count` published questions spread across the given chapters (round-robin, easier first). */
+export async function assembleQuestions(db: Db, actor: Actor, input: { moduleIds: string[]; count: number; excludeIds?: string[] }) {
   if (actor.role === "student") throw new ForbiddenError();
   const count = Math.max(1, Math.min(40, Math.floor(input.count)));
-  if (input.losIds.length === 0) throw new ValidationError("Pick at least one learning objective.");
+  if (input.moduleIds.length === 0) throw new ValidationError("Pick at least one chapter.");
   const rows = await db
-    .select({ id: questions.id, losId: questionLos.losId, difficulty: questions.difficulty })
-    .from(questionLos)
-    .innerJoin(questions, and(eq(questions.id, questionLos.questionId), eq(questions.status, "published")))
-    .where(inArray(questionLos.losId, input.losIds))
+    .select({ id: questions.id, moduleId: questions.moduleId, difficulty: questions.difficulty })
+    .from(questions)
+    .where(and(eq(questions.status, "published"), inArray(questions.moduleId, input.moduleIds)))
     .orderBy(asc(questions.difficulty), asc(questions.id));
   const exclude = new Set(input.excludeIds ?? []);
-  const byLos = new Map<string, string[]>();
+  const byModule = new Map<string, string[]>();
   for (const r of rows) {
-    if (exclude.has(r.id)) continue;
-    byLos.set(r.losId, [...(byLos.get(r.losId) ?? []), r.id]);
+    if (exclude.has(r.id) || !r.moduleId) continue;
+    byModule.set(r.moduleId, [...(byModule.get(r.moduleId) ?? []), r.id]);
   }
   const picked: string[] = [];
-  const queues = input.losIds.map((id) => [...(byLos.get(id) ?? [])]);
+  const queues = input.moduleIds.map((id) => [...(byModule.get(id) ?? [])]);
   while (picked.length < count && queues.some((q) => q.length)) {
     for (const q of queues) {
       const next = q.shift();
@@ -52,8 +52,8 @@ export async function assembleQuestions(db: Db, actor: Actor, input: { losIds: s
       if (picked.length >= count) break;
     }
   }
-  const covered = input.losIds.filter((id) => (byLos.get(id) ?? []).some((q) => picked.includes(q)));
-  return { questionIds: picked, coveredLosIds: covered, uncoveredLosIds: input.losIds.filter((id) => !covered.includes(id)) };
+  const covered = input.moduleIds.filter((id) => (byModule.get(id) ?? []).some((q) => picked.includes(q)));
+  return { questionIds: picked, coveredModuleIds: covered, uncoveredModuleIds: input.moduleIds.filter((id) => !covered.includes(id)) };
 }
 
 export async function createAssignment(
@@ -89,6 +89,7 @@ export async function createAssignment(
   }
   for (const it of input.items) {
     if (it.kind === "text" && (it.prompt.trim().length < 5 || it.prompt.length > 2000)) throw new ValidationError("Written prompts must be 5–2000 characters.");
+    if (it.kind === "file" && (it.prompt.trim().length < 3 || it.prompt.length > 2000)) throw new ValidationError("Say what students should upload (3–2000 characters).");
     if (it.points !== undefined && (!Number.isInteger(it.points) || it.points < 1 || it.points > 20)) throw new ValidationError("Points must be 1–20.");
   }
   if (input.target.kind === "students") {
@@ -123,7 +124,7 @@ export async function createAssignment(
         position: i,
         kind: it.kind,
         questionId: it.kind === "mcq" ? it.questionId : null,
-        prompt: it.kind === "text" ? it.prompt.trim() : null,
+        prompt: it.kind === "mcq" ? null : it.prompt.trim(),
         points: it.points ?? 1,
       })),
     );
@@ -132,21 +133,13 @@ export async function createAssignment(
 }
 
 export async function publishAssignment(db: Db, actor: Actor, assignmentId: string, now = new Date()) {
-  const a = await teacherAssignment(db, actor, assignmentId);
+  const a = await assertTeacherAssignment(db, actor, assignmentId);
   if (a.status === "assigned") return a;
   if (a.dueAt <= now) throw new ValidationError("Move the due date into the future before assigning.");
   const [row] = await db.update(assignments).set({ status: "assigned", assignedAt: now }).where(eq(assignments.id, a.id)).returning();
   return row;
 }
 
-async function teacherAssignment(db: Db, actor: Actor, assignmentId: string) {
-  const [a] = await db.select().from(assignments).where(eq(assignments.id, assignmentId)).limit(1);
-  if (!a) throw new NotFoundError("Homework not found.");
-  await assertClassAccess(db, actor, a.classId);
-  return a;
-}
-
-/** Students the homework applies to: targeted, and enrolled before it was due. */
 async function targetedStudents(db: Db, a: AssignmentRow): Promise<{ id: string; name: string }[]> {
   const roster = await db
     .select({ id: users.id, name: users.name, joinedAt: enrollments.joinedAt })
@@ -183,7 +176,7 @@ export async function listTeacherAssignments(db: Db, actor: Actor, classId: stri
 }
 
 export async function getAssignmentForTeacher(db: Db, actor: Actor, assignmentId: string) {
-  const a = await teacherAssignment(db, actor, assignmentId);
+  const a = await assertTeacherAssignment(db, actor, assignmentId);
   const items = await db
     .select({ item: assignmentItems, q: questions })
     .from(assignmentItems)
@@ -195,11 +188,19 @@ export async function getAssignmentForTeacher(db: Db, actor: Actor, assignmentId
   const answers = subs.length
     ? await db.select().from(submissionAnswers).where(inArray(submissionAnswers.submissionId, subs.map((s) => s.id)))
     : [];
+  const fileCounts = subs.length
+    ? await db
+        .select({ submissionId: files.submissionId, n: sql<number>`count(*)::int` })
+        .from(files)
+        .where(and(inArray(files.submissionId, subs.map((x) => x.id)), eq(files.kind, "submission")))
+        .groupBy(files.submissionId)
+    : [];
   const students = targets.map((t) => {
     const s = subs.find((x) => x.studentId === t.id);
     return {
       ...t,
       submissionId: s?.id ?? null,
+      uploadedFiles: s ? (fileCounts.find((f) => f.submissionId === s.id)?.n ?? 0) : 0,
       status: (s?.status ?? "not_started") as StudentHomeworkStatus,
       late: s?.late ?? false,
       score: s?.score ?? null,
@@ -219,7 +220,7 @@ export async function getAssignmentForTeacher(db: Db, actor: Actor, assignmentId
       choiceCounts: counts,
     };
   });
-  return { assignment: a, items: itemStats, students };
+  return { assignment: a, items: itemStats, students, attachments: await listAssignmentFiles(db, a.id) };
 }
 
 /** Assignments visible to a student: assigned (not draft), in their classes, targeted at them. */
@@ -264,19 +265,6 @@ export async function listStudentAssignments(db: Db, actor: Actor, now = new Dat
   });
 }
 
-async function studentAssignment(db: Db, actor: Actor, assignmentId: string) {
-  if (actor.role !== "student") throw new ForbiddenError();
-  const [a] = await db.select().from(assignments).where(eq(assignments.id, assignmentId)).limit(1);
-  if (!a || a.status !== "assigned") throw new NotFoundError("Homework not found.");
-  const [enr] = await db
-    .select({ id: enrollments.studentId })
-    .from(enrollments)
-    .where(and(eq(enrollments.classId, a.classId), eq(enrollments.studentId, actor.id)))
-    .limit(1);
-  if (!enr || !isTargeted(a, actor.id)) throw new NotFoundError("Homework not found.");
-  return a;
-}
-
 function canReveal(a: AssignmentRow, submitted: boolean, now: Date) {
   if (!submitted) return false;
   if (a.policies.showAnswers === "immediately") return true;
@@ -285,7 +273,7 @@ function canReveal(a: AssignmentRow, submitted: boolean, now: Date) {
 }
 
 export async function getAssignmentForStudent(db: Db, actor: Actor, assignmentId: string, now = new Date()) {
-  const a = await studentAssignment(db, actor, assignmentId);
+  const a = await assertStudentAssignment(db, actor, assignmentId);
   const items = await db
     .select({ item: assignmentItems, q: questions })
     .from(assignmentItems)
@@ -300,7 +288,10 @@ export async function getAssignmentForStudent(db: Db, actor: Actor, assignmentId
   const answers = sub ? await db.select().from(submissionAnswers).where(eq(submissionAnswers.submissionId, sub.id)) : [];
   const submitted = !!sub && sub.status !== "in_progress";
   const reveal = canReveal(a, submitted, now);
+  const myFiles = sub ? await listSubmissionFiles(db, sub.id) : [];
+  const attachments = await listAssignmentFiles(db, a.id);
   return {
+    attachments,
     assignment: {
       id: a.id,
       title: a.title,
@@ -317,6 +308,8 @@ export async function getAssignmentForStudent(db: Db, actor: Actor, assignmentId
           score: sub.status === "graded" ? sub.score : null,
           maxScore: sub.status === "graded" ? sub.maxScore : null,
           teacherFeedback: sub.status === "graded" ? sub.teacherFeedback : null,
+          /** Marked-up work returned by the teacher, once graded. */
+          feedbackFiles: sub.status === "graded" ? myFiles.filter((f) => f.kind === "feedback") : ([] as FileMeta[]),
         }
       : null,
     reveal,
@@ -324,9 +317,11 @@ export async function getAssignmentForStudent(db: Db, actor: Actor, assignmentId
       const ans = answers.find((x) => x.itemId === item.id);
       return {
         id: item.id,
-        kind: item.kind as "mcq" | "text",
+        kind: item.kind as "mcq" | "text" | "file",
         points: item.points,
-        prompt: item.kind === "text" ? item.prompt : q!.stem,
+        prompt: item.kind === "mcq" ? q!.stem : item.prompt,
+        /** The student's uploaded work for a file item. */
+        files: item.kind === "file" ? myFiles.filter((f) => f.kind === "submission" && f.itemId === item.id) : ([] as FileMeta[]),
         options: item.kind === "mcq" ? q!.options : null,
         answer: { chosenKey: ans?.chosenKey ?? null, textAnswer: ans?.textAnswer ?? null },
         // Correctness only after submission; answer key/explanation only when policy allows.
@@ -378,16 +373,26 @@ async function upsertDraft(db: Db, actor: Actor, a: AssignmentRow, answers: Answ
 }
 
 export async function saveDraft(db: Db, actor: Actor, assignmentId: string, answers: AnswerInput[]) {
-  const a = await studentAssignment(db, actor, assignmentId);
+  const a = await assertStudentAssignment(db, actor, assignmentId);
   await upsertDraft(db, actor, a, answers);
 }
 
 /** Final submission: auto-grade MCQ (feeding mastery), queue written items for the teacher. */
 export async function submitAssignment(db: Db, actor: Actor, assignmentId: string, answers: AnswerInput[], now = new Date()) {
-  const a = await studentAssignment(db, actor, assignmentId);
+  const a = await assertStudentAssignment(db, actor, assignmentId);
   const late = a.dueAt < now;
   if (late && !a.policies.allowLate) throw new ValidationError("The due date has passed and late work isn't accepted.");
   const { sub, items } = await upsertDraft(db, actor, a, answers);
+  // Every file item needs at least one upload before the work can be handed in.
+  const fileItems = items.filter((i) => i.kind === "file");
+  if (fileItems.length) {
+    const have = await db
+      .select({ itemId: files.itemId })
+      .from(files)
+      .where(and(eq(files.submissionId, sub.id), eq(files.kind, "submission")));
+    const missing = fileItems.filter((i) => !have.some((h) => h.itemId === i.id));
+    if (missing.length) throw new ValidationError(`Upload your work before handing in: ${missing.map((m) => `“${m.prompt}”`).join(", ")}.`);
+  }
   // Claim the submission atomically so a double submit can't grade (and count attempts) twice.
   const [claimed] = await db
     .update(submissions)
@@ -447,7 +452,7 @@ export async function gradeSubmission(
 ) {
   const [sub] = await db.select().from(submissions).where(eq(submissions.id, submissionId)).limit(1);
   if (!sub) throw new NotFoundError("Submission not found.");
-  await teacherAssignment(db, actor, sub.assignmentId);
+  await assertTeacherAssignment(db, actor, sub.assignmentId);
   if (sub.status === "in_progress") throw new ValidationError("The student hasn't submitted yet.");
   const items = await db.select().from(assignmentItems).where(eq(assignmentItems.assignmentId, sub.assignmentId));
   for (const g of input.items) {
@@ -461,8 +466,8 @@ export async function gradeSubmission(
       .onConflictDoUpdate({ target: [submissionAnswers.submissionId, submissionAnswers.itemId], set: values });
   }
   const answers = await db.select().from(submissionAnswers).where(eq(submissionAnswers.submissionId, submissionId));
-  const ungradedText = items.filter((i) => i.kind === "text" && !answers.some((a) => a.itemId === i.id && a.pointsAwarded !== null));
-  if (ungradedText.length) throw new ValidationError("Grade every written answer before returning the work.");
+  const ungraded = items.filter((i) => i.kind !== "mcq" && !answers.some((a) => a.itemId === i.id && a.pointsAwarded !== null));
+  if (ungraded.length) throw new ValidationError("Grade every written answer and uploaded file before returning the work.");
   const score = answers.reduce((s, a) => s + (a.pointsAwarded ?? 0), 0);
   const [row] = await db
     .update(submissions)
@@ -481,7 +486,7 @@ export async function gradeSubmission(
 export async function getSubmissionForTeacher(db: Db, actor: Actor, submissionId: string) {
   const [sub] = await db.select().from(submissions).where(eq(submissions.id, submissionId)).limit(1);
   if (!sub) throw new NotFoundError("Submission not found.");
-  const a = await teacherAssignment(db, actor, sub.assignmentId);
+  const a = await assertTeacherAssignment(db, actor, sub.assignmentId);
   const [student] = await db.select({ id: users.id, name: users.name }).from(users).where(eq(users.id, sub.studentId));
   const items = await db
     .select({ item: assignmentItems, q: questions })
@@ -490,14 +495,19 @@ export async function getSubmissionForTeacher(db: Db, actor: Actor, submissionId
     .where(eq(assignmentItems.assignmentId, a.id))
     .orderBy(asc(assignmentItems.position));
   const answers = await db.select().from(submissionAnswers).where(eq(submissionAnswers.submissionId, sub.id));
+  const subFiles = await listSubmissionFiles(db, sub.id);
   return {
     assignment: a,
     student,
     submission: sub,
+    attachments: await listAssignmentFiles(db, a.id),
+    feedbackFiles: subFiles.filter((f) => f.kind === "feedback"),
     items: items.map(({ item, q }) => ({
       item,
       question: q ? { stem: q.stem, options: q.options, correctKey: q.correctKey } : null,
       answer: answers.find((x) => x.itemId === item.id) ?? null,
+      /** The student's uploaded work for a file item. */
+      files: item.kind === "file" ? subFiles.filter((f) => f.kind === "submission" && f.itemId === item.id) : ([] as FileMeta[]),
     })),
   };
 }
