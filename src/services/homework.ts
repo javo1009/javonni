@@ -226,13 +226,14 @@ export async function getAssignmentForTeacher(db: Db, actor: Actor, assignmentId
 export async function listStudentAssignments(db: Db, actor: Actor, now = new Date()) {
   if (actor.role !== "student") throw new ForbiddenError();
   const rows = await db
-    .select({ a: assignments, className: classes.name })
+    .select({ a: assignments, className: classes.name, joinedAt: enrollments.joinedAt })
     .from(assignments)
     .innerJoin(classes, eq(classes.id, assignments.classId))
     .innerJoin(enrollments, and(eq(enrollments.classId, assignments.classId), eq(enrollments.studentId, actor.id)))
     .where(eq(assignments.status, "assigned"))
     .orderBy(asc(assignments.dueAt));
-  const visible = rows.filter((r) => isTargeted(r.a, actor.id));
+  // Homework that was already due when the student joined doesn't apply to them.
+  const visible = rows.filter((r) => isTargeted(r.a, actor.id) && r.joinedAt <= r.a.dueAt);
   const subs = visible.length
     ? await db
         .select()

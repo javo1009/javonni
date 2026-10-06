@@ -2,17 +2,26 @@
 
 // Plan burn-up: cumulative planned vs studied hours to exam day, with a hover crosshair.
 // Two series -> legend + direct labels; the summary sentence is the text alternative.
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 export type BurnPoint = { date: string; planned: number; done: number | null };
 
-const W = 640;
 const H = 200;
 const PAD = { l: 36, r: 64, t: 12, b: 24 };
 
 export function BurnUp({ points, today, summary }: { points: BurnPoint[]; today: string; summary: string }) {
   const id = useId();
   const [hover, setHover] = useState<number | null>(null);
+  // Draw in real pixels (viewBox = container width) so labels stay legible on phones.
+  const ref = useRef<HTMLElement>(null);
+  const [W, setW] = useState(640);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setW(Math.max(280, Math.round(e.contentRect.width))));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const { x, y, plannedPath, donePath, ticks, maxY } = useMemo(() => {
     const maxY = Math.max(1, ...points.map((p) => p.planned), ...points.map((p) => p.done ?? 0));
     const x = (i: number) => PAD.l + (i / Math.max(1, points.length - 1)) * (W - PAD.l - PAD.r);
@@ -23,7 +32,7 @@ export function BurnUp({ points, today, summary }: { points: BurnPoint[]; today:
     const step = maxY > 200 ? 50 : maxY > 80 ? 20 : maxY > 30 ? 10 : 5;
     const ticks = Array.from({ length: Math.floor(maxY / step) + 1 }, (_, k) => k * step);
     return { x, y, plannedPath, donePath, ticks, maxY };
-  }, [points]);
+  }, [points, W]);
 
   if (points.length < 2) return null;
   const todayIdx = points.findIndex((p) => p.date >= today);
@@ -32,7 +41,7 @@ export function BurnUp({ points, today, summary }: { points: BurnPoint[]; today:
   const h = hover !== null ? points[hover] : null;
 
   return (
-    <figure className="relative">
+    <figure ref={ref} className="relative">
       <div className="mb-2 flex flex-wrap items-center gap-4 text-xs text-ink-2" aria-hidden>
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-0.5 w-5 rounded bg-brand" /> Studied

@@ -259,6 +259,9 @@ describe("homework stats", () => {
     const past = list.find((a) => a.dueAt < new Date("2026-11-18T00:00:00Z"))!;
     const detail = await getAssignmentForTeacher(t.db, teacher, past.id);
     expect(detail.students.some((s) => s.id === late.id)).toBe(false);
+    // ...and the late joiner doesn't see it as overdue homework.
+    const theirs = await listStudentAssignments(t.db, late, new Date("2026-11-20T00:00:00Z"));
+    expect(theirs.some((a) => a.id === past.id)).toBe(false);
     await t.db.delete(enrollments).where(eq(enrollments.studentId, late.id));
   });
 });

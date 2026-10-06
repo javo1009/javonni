@@ -1,6 +1,6 @@
 import { AppShell } from "@/components/shell/app-shell";
 import type { NavItem } from "@/components/shell/nav-links";
-import { getCurriculum, studentContext } from "@/server/context";
+import { getCurriculumOrNull, studentContext } from "@/server/context";
 
 const NAV: NavItem[] = [
   { href: "/student", label: "Today", icon: "today", exact: true },
@@ -12,9 +12,9 @@ const NAV: NavItem[] = [
 
 export default async function StudentLayout({ children }: { children: React.ReactNode }) {
   const { user } = await studentContext();
-  const c = await getCurriculum();
+  const c = await getCurriculumOrNull();
   return (
-    <AppShell nav={NAV} user={user} areaLabel="Study" sampleCurriculum={c.version.isSample}>
+    <AppShell nav={NAV} user={user} areaLabel="Study" sampleCurriculum={c?.version.isSample ?? false}>
       {children}
     </AppShell>
   );

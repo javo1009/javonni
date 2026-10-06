@@ -15,8 +15,8 @@ const buttonVariant: Record<ButtonVariant, string> = {
   danger: "bg-risk text-white hover:brightness-110",
 };
 const buttonSize: Record<ButtonSize, string> = {
-  sm: "h-8 px-3 text-sm",
-  md: "h-10 px-4 text-sm",
+  sm: "h-8 max-sm:h-11 px-3 text-sm",
+  md: "h-10 max-sm:h-11 px-4 text-sm",
   lg: "h-12 px-5 text-base",
 };
 

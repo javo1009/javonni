@@ -47,8 +47,10 @@ export function assessProgress(input: { today: ISODate; examDate: ISODate; items
   let optionalRemaining = 0;
   for (const it of items) {
     if (it.status === "done") done += it.minutes;
-    if (it.date <= today) due += it.minutes;
-    else if (it.status === "todo") {
+    // Past days are due in full; today's tasks only count once done, so nobody
+    // starts the morning "behind" on work they still have the whole day to do.
+    if (it.date < today || (it.date === today && it.status === "done")) due += it.minutes;
+    else if (it.date > today && it.status === "todo") {
       remaining += it.minutes;
       if (OPTIONAL_TYPES.has(it.type)) optionalRemaining += it.minutes;
     }

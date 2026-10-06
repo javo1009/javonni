@@ -27,7 +27,7 @@ describe("assessProgress", () => {
       ...Array.from({ length: 40 }, (_, i) => item(`2026-12-${String(2 + (i % 20)).padStart(2, "0")}`, 60, "todo")),
     ];
     const a = assessProgress({ ...base, items });
-    expect(a.deltaMinutes).toBe(-180);
+    expect(a.deltaMinutes).toBe(-120); // today's undone task isn't counted as missed yet
     expect(a.state).toBe("behind");
     const add = a.options.find((o) => o.kind === "add_time");
     expect(add).toBeTruthy();
@@ -39,6 +39,12 @@ describe("assessProgress", () => {
     const a = assessProgress({ ...base, items });
     expect(a.state).toBe("at_risk");
     expect(a.options.some((o) => o.kind === "review_exam_date")).toBe(true);
+  });
+
+  it("doesn't count today's undone tasks as behind", () => {
+    const a = assessProgress({ ...base, items: [item("2026-12-01", 90, "todo"), item("2026-12-02", 60, "todo")] });
+    expect(a.deltaMinutes).toBe(0);
+    expect(a.state).toBe("on_track");
   });
 
   it("treats skipped tasks as not done", () => {
