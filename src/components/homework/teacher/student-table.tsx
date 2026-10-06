@@ -20,7 +20,10 @@ export type StudentRowData = {
   submittedAt: string | null;
 };
 
-const STATUS: Record<StudentRowData["status"], { label: string; tone: "neutral" | "brand" | "warn" | "good"; icon: string }> = {
+const STATUS: Record<
+  StudentRowData["status"],
+  { label: string; tone: "neutral" | "brand" | "warn" | "good"; icon: string }
+> = {
   submitted: { label: "Needs marking", tone: "warn", icon: "●" },
   in_progress: { label: "In progress", tone: "brand", icon: "◐" },
   not_started: { label: "Not started", tone: "neutral", icon: "○" },
@@ -29,10 +32,25 @@ const STATUS: Record<StudentRowData["status"], { label: string; tone: "neutral" 
 
 type Filter = "all" | StudentRowData["status"] | "late";
 
-export function StudentTable({ assignmentId, rows, timeZone, isDraft }: { assignmentId: string; rows: StudentRowData[]; timeZone: string; isDraft: boolean }) {
+export function StudentTable({
+  assignmentId,
+  rows,
+  timeZone,
+  isDraft,
+}: {
+  assignmentId: string;
+  rows: StudentRowData[];
+  timeZone: string;
+  isDraft: boolean;
+}) {
   const [filter, setFilter] = useState<Filter>("all");
   const sorted = useMemo(() => sortStudents(rows), [rows]);
-  const count = (f: Filter) => (f === "all" ? rows.length : f === "late" ? rows.filter((r) => r.late).length : rows.filter((r) => r.status === f).length);
+  const count = (f: Filter) =>
+    f === "all"
+      ? rows.length
+      : f === "late"
+        ? rows.filter((r) => r.late).length
+        : rows.filter((r) => r.status === f).length;
   const chips: [Filter, string][] = [
     ["all", "All"],
     ["submitted", "Needs marking"],
@@ -41,18 +59,27 @@ export function StudentTable({ assignmentId, rows, timeZone, isDraft }: { assign
     ["not_started", "Not started"],
     ["late", "Late"],
   ];
-  const shown = sorted.filter((r) => filter === "all" || (filter === "late" ? r.late : r.status === filter));
+  const shown = sorted.filter(
+    (r) =>
+      filter === "all" || (filter === "late" ? r.late : r.status === filter),
+  );
 
   if (rows.length === 0)
     return (
       <EmptyState title="No students targeted yet">
-        {isDraft ? "Once you assign this, every student it applies to will be listed here." : "Nobody is in this class yet, or nobody chosen has joined."}
+        {isDraft
+          ? "Once you assign this, every student it applies to will be listed here."
+          : "Nobody is in this class yet, or nobody chosen has joined."}
       </EmptyState>
     );
 
   return (
     <div className="space-y-3">
-      <div role="group" aria-label="Filter students" className="flex flex-wrap gap-2">
+      <div
+        role="group"
+        aria-label="Filter students"
+        className="flex flex-wrap gap-2"
+      >
         {chips.map(([f, label]) => (
           <button
             key={f}
@@ -61,7 +88,9 @@ export function StudentTable({ assignmentId, rows, timeZone, isDraft }: { assign
             onClick={() => setFilter(f)}
             className={cn(
               "inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-sm font-semibold max-sm:h-11",
-              filter === f ? "border-brand bg-brand-soft text-brand" : "border-border bg-surface-2 text-ink-2 hover:text-ink",
+              filter === f
+                ? "border-brand bg-brand-soft text-brand"
+                : "border-border bg-surface-2 text-ink-2 hover:text-ink",
             )}
           >
             {label}
@@ -103,12 +132,20 @@ export function StudentTable({ assignmentId, rows, timeZone, isDraft }: { assign
             )}
             {shown.map((r) => {
               const s = STATUS[r.status];
-              const canOpen = r.submissionId && (r.status === "submitted" || r.status === "graded");
+              const canOpen =
+                r.submissionId &&
+                (r.status === "submitted" || r.status === "graded");
               return (
-                <tr key={r.id} className={cn(r.status === "submitted" && "bg-warn-soft/40")}>
+                <tr
+                  key={r.id}
+                  className={cn(r.status === "submitted" && "bg-warn-soft/40")}
+                >
                   <th scope="row" className={cn(td, "text-left font-semibold")}>
                     {canOpen ? (
-                      <Link href={`/teacher/homework/${assignmentId}/submissions/${r.submissionId}`} className="hover:underline">
+                      <Link
+                        href={`/teacher/homework/${assignmentId}/submissions/${r.submissionId}`}
+                        className="hover:underline"
+                      >
                         {r.name}
                       </Link>
                     ) : (
@@ -123,15 +160,21 @@ export function StudentTable({ assignmentId, rows, timeZone, isDraft }: { assign
                       {r.late && <Badge tone="risk">Late</Badge>}
                     </span>
                   </td>
-                  <td className={cn(td, "tabular")}>{r.status === "not_started" ? "—" : r.uploadedFiles}</td>
-                  <td className={cn(td, "whitespace-nowrap text-ink-2")}>{r.submittedAt ? formatWhen(r.submittedAt, timeZone) : "—"}</td>
+                  <td className={cn(td, "tabular")}>
+                    {r.status === "not_started" ? "—" : r.uploadedFiles}
+                  </td>
+                  <td className={cn(td, "whitespace-nowrap text-ink-2")}>
+                    {r.submittedAt ? formatWhen(r.submittedAt, timeZone) : "—"}
+                  </td>
                   <td className={cn(td, "tabular whitespace-nowrap")}>
                     {r.status === "graded" && r.score !== null && r.maxScore ? (
                       <>
                         <strong>
                           {r.score} / {r.maxScore}
                         </strong>{" "}
-                        <span className="text-ink-2">({Math.round((r.score / r.maxScore) * 100)}%)</span>
+                        <span className="text-ink-2">
+                          ({Math.round((r.score / r.maxScore) * 100)}%)
+                        </span>
                       </>
                     ) : (
                       "—"
@@ -144,7 +187,9 @@ export function StudentTable({ assignmentId, rows, timeZone, isDraft }: { assign
                         aria-label={`${r.status === "submitted" ? "Mark" : "Review"} ${r.name}'s work`}
                         className={cn(
                           "inline-flex h-8 items-center rounded-[10px] px-3 text-sm font-semibold max-sm:h-11",
-                          r.status === "submitted" ? "bg-brand text-brand-ink hover:bg-brand-hi" : "border border-border-strong bg-surface-2 text-ink hover:bg-surface-3",
+                          r.status === "submitted"
+                            ? "bg-brand text-brand-ink hover:bg-brand-hi"
+                            : "border border-border-strong bg-surface-2 text-ink hover:bg-surface-3",
                         )}
                       >
                         {r.status === "submitted" ? "Mark" : "Review"}

@@ -39,7 +39,7 @@ export function StatusMessage({ notice, className }: { notice: Notice; className
     return () => clearTimeout(t);
   }, [id]);
   return (
-    <p role="status" aria-live="polite" className={cn("min-h-5 text-sm text-good", className)}>
+    <p role="status" aria-live="polite" className={cn("text-sm text-good", className)}>
       {notice && notice.id !== dismissedId ? notice.text : ""}
     </p>
   );

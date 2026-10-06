@@ -12,7 +12,8 @@ const MAX_PAGE_SIZE = 50;
 const MAX_PREVIEW_IDS = 60;
 
 export function assertTeacher(actor: Actor) {
-  if (actor.role !== "teacher" && actor.role !== "admin") throw new ForbiddenError("Only teachers can browse the question bank.");
+  if (actor.role !== "teacher" && actor.role !== "admin")
+    throw new ForbiddenError("Only teachers can browse the question bank.");
 }
 
 export type BankQuestion = {
@@ -59,16 +60,27 @@ const columns = {
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 /** A page of published questions, in curriculum order (topic, chapter), then easier first. */
-export async function listQuestions(db: Db, actor: Actor, filters: QuestionFilters = {}) {
+export async function listQuestions(
+  db: Db,
+  actor: Actor,
+  filters: QuestionFilters = {},
+) {
   assertTeacher(actor);
   const active = await getActiveCurriculum(db);
-  const pageSize = Math.max(1, Math.min(MAX_PAGE_SIZE, Math.floor(filters.pageSize ?? QUESTION_PAGE_SIZE)));
+  const pageSize = Math.max(
+    1,
+    Math.min(MAX_PAGE_SIZE, Math.floor(filters.pageSize ?? QUESTION_PAGE_SIZE)),
+  );
   const search = filters.search?.trim().slice(0, 100);
 
-  const where: SQL[] = [eq(questions.status, "published"), eq(topics.versionId, active.version.id)];
+  const where: SQL[] = [
+    eq(questions.status, "published"),
+    eq(topics.versionId, active.version.id),
+  ];
   if (filters.moduleId) where.push(eq(questions.moduleId, filters.moduleId));
   if (filters.topicId) where.push(eq(topics.id, filters.topicId));
-  if (filters.difficulty) where.push(eq(questions.difficulty, filters.difficulty));
+  if (filters.difficulty)
+    where.push(eq(questions.difficulty, filters.difficulty));
   if (search) where.push(ilike(questions.stem, `%${escapeLike(search)}%`));
 
   const base = db
@@ -85,9 +97,17 @@ export async function listQuestions(db: Db, actor: Actor, filters: QuestionFilte
     .where(and(...where));
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
-  const page = Math.max(1, Math.min(pageCount, Math.floor(filters.page ?? 1) || 1));
+  const page = Math.max(
+    1,
+    Math.min(pageCount, Math.floor(filters.page ?? 1) || 1),
+  );
   const rows = await base
-    .orderBy(asc(topics.order), asc(modules.number), asc(questions.difficulty), asc(questions.id))
+    .orderBy(
+      asc(topics.order),
+      asc(modules.number),
+      asc(questions.difficulty),
+      asc(questions.id),
+    )
     .limit(pageSize)
     .offset((page - 1) * pageSize);
   return { items: rows as BankQuestion[], total, page, pageSize, pageCount };
@@ -97,28 +117,47 @@ export async function listQuestions(db: Db, actor: Actor, filters: QuestionFilte
  * Questions by id, in the order asked, for previewing a homework's auto-marked items.
  * Unpublished or unknown ids are left out rather than leaked.
  */
-export async function questionPreviews(db: Db, actor: Actor, ids: string[]): Promise<BankQuestion[]> {
+export async function questionPreviews(
+  db: Db,
+  actor: Actor,
+  ids: string[],
+): Promise<BankQuestion[]> {
   assertTeacher(actor);
   const unique = [...new Set(ids)];
-  if (unique.length > MAX_PREVIEW_IDS) throw new ValidationError("Too many questions to preview.");
+  if (unique.length > MAX_PREVIEW_IDS)
+    throw new ValidationError("Too many questions to preview.");
   if (unique.length === 0) return [];
   const rows = await db
     .select(columns)
     .from(questions)
     .innerJoin(modules, eq(modules.id, questions.moduleId))
     .innerJoin(topics, eq(topics.id, modules.topicId))
-    .where(and(inArray(questions.id, unique), eq(questions.status, "published")));
+    .where(
+      and(inArray(questions.id, unique), eq(questions.status, "published")),
+    );
   const byId = new Map(rows.map((r) => [r.id, r as BankQuestion]));
   return unique.flatMap((id) => byId.get(id) ?? []);
 }
 
-export type ModuleCoverage = { total: number; easy: number; medium: number; hard: number };
+export type ModuleCoverage = {
+  total: number;
+  easy: number;
+  medium: number;
+  hard: number;
+};
 
 /** Published questions per chapter, split by difficulty. Chapters with no questions are absent. */
-export async function questionCoverage(db: Db, actor: Actor): Promise<Map<string, ModuleCoverage>> {
+export async function questionCoverage(
+  db: Db,
+  actor: Actor,
+): Promise<Map<string, ModuleCoverage>> {
   assertTeacher(actor);
   const rows = await db
-    .select({ moduleId: questions.moduleId, difficulty: questions.difficulty, n: sql<number>`count(*)::int` })
+    .select({
+      moduleId: questions.moduleId,
+      difficulty: questions.difficulty,
+      n: sql<number>`count(*)::int`,
+    })
     .from(questions)
     .where(eq(questions.status, "published"))
     .groupBy(questions.moduleId, questions.difficulty);

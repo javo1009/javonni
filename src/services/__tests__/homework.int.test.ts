@@ -284,3 +284,21 @@ describe("class overview", () => {
     await expect(getClassOverview(t.db, otherTeacher, classId, "2026-11-20")).rejects.toBeInstanceOf(ForbiddenError);
   });
 });
+
+describe("editing homework", () => {
+  it("lets a draft change everything but an assigned task only its due date", async () => {
+    const { updateAssignment, publishAssignment } = await import("../homework");
+    const items = await mcqItems(1);
+    const draft = await createAssignment(t.db, teacher, { classId, title: "Edit me", dueAt: DUE, target: { kind: "class" }, policies, items, assign: false }, NOW);
+    const later = new Date("2026-11-20T21:00:00Z");
+    const d = await updateAssignment(t.db, teacher, draft.id, { title: "Edited", dueAt: later }, NOW);
+    expect(d.title).toBe("Edited");
+    expect(d.dueAt.toISOString()).toBe(later.toISOString());
+    await expect(updateAssignment(t.db, teacher, draft.id, { dueAt: new Date("2026-11-01") }, NOW)).rejects.toBeInstanceOf(ValidationError);
+    await expect(updateAssignment(t.db, otherTeacher, draft.id, { title: "Hijack" }, NOW)).rejects.toBeInstanceOf(ForbiddenError);
+    await publishAssignment(t.db, teacher, draft.id, NOW);
+    await expect(updateAssignment(t.db, teacher, draft.id, { title: "Changed under students" }, NOW)).rejects.toThrow(/Only the due date/);
+    const ext = await updateAssignment(t.db, teacher, draft.id, { dueAt: new Date("2026-11-25T21:00:00Z") }, NOW);
+    expect(ext.dueAt.toISOString()).toBe("2026-11-25T21:00:00.000Z");
+  });
+});

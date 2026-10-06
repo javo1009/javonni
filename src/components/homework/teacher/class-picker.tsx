@@ -4,7 +4,13 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Select } from "@/components/ui";
 
 /** Switches the `class` query param, keeping any other filters (tab etc.). */
-export function ClassPicker({ classes, value }: { classes: { id: string; name: string }[]; value: string }) {
+export function ClassPicker({
+  classes,
+  value,
+}: {
+  classes: { id: string; name: string }[];
+  value: string;
+}) {
   const router = useRouter();
   const path = usePathname();
   const sp = useSearchParams();

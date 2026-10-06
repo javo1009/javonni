@@ -2,7 +2,12 @@
 
 import { useId, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
-import { ACCEPT_ATTR, ALLOWED_LABEL, formatBytes, MAX_FILE_BYTES } from "./file-rules";
+import {
+  ACCEPT_ATTR,
+  ALLOWED_LABEL,
+  formatBytes,
+  MAX_FILE_BYTES,
+} from "./file-rules";
 
 /**
  * A drop target that is also a labelled file input: keyboard users tab to the (visually hidden) input
@@ -57,21 +62,40 @@ export function DropZone({
           e.target.value = "";
         }}
       />
-      <span aria-hidden className="grid size-9 place-items-center rounded-full bg-brand-soft text-lg text-brand">
+      <span
+        aria-hidden
+        className="grid size-9 place-items-center rounded-full bg-brand-soft text-lg text-brand"
+      >
         ↑
       </span>
       <span className="font-semibold text-ink">{title}</span>
-      <span className="text-sm text-ink-2">{hint ?? `${ALLOWED_LABEL} · up to ${MAX_FILE_BYTES / 1024 / 1024} MB each`}</span>
+      <span className="text-sm text-ink-2">
+        {hint ??
+          `${ALLOWED_LABEL} · up to ${MAX_FILE_BYTES / 1024 / 1024} MB each`}
+      </span>
     </label>
   );
 }
 
 export type UploadStatus = "queued" | "uploading" | "done" | "error";
 
-const STATUS_TEXT: Record<UploadStatus, string> = { queued: "Ready", uploading: "Uploading…", done: "Uploaded", error: "Failed" };
+const STATUS_TEXT: Record<UploadStatus, string> = {
+  queued: "Ready",
+  uploading: "Uploading…",
+  done: "Uploaded",
+  error: "Failed",
+};
 
 export function Spinner({ className }: { className?: string }) {
-  return <span aria-hidden className={cn("inline-block size-3.5 animate-spin rounded-full border-2 border-brand border-t-transparent motion-reduce:animate-none", className)} />;
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "inline-block size-3.5 animate-spin rounded-full border-2 border-brand border-t-transparent motion-reduce:animate-none",
+        className,
+      )}
+    />
+  );
 }
 
 /** One file in a list: name, size, an explicit status word (never colour alone) and an optional remove button. */
@@ -97,12 +121,19 @@ export function FileRow({
   return (
     <li className="rounded-xl border border-border bg-surface-2 px-3.5 py-2.5">
       <div className="flex items-center gap-3">
-        <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-3 text-xs font-bold uppercase text-ink-2">
+        <span
+          aria-hidden
+          className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-3 text-xs font-bold uppercase text-ink-2"
+        >
           {name.includes(".") ? name.split(".").pop()!.slice(0, 4) : "file"}
         </span>
         <div className="min-w-0 flex-1">
           {href ? (
-            <a href={href} className="block truncate font-medium text-link underline-offset-2 hover:underline" title={name}>
+            <a
+              href={href}
+              className="block truncate font-medium text-link underline-offset-2 hover:underline"
+              title={name}
+            >
               {name}
             </a>
           ) : (

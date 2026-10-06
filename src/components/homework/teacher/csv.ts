@@ -13,6 +13,11 @@ export function toCsv(rows: (string | number | null | undefined)[][]): string {
 }
 
 export function csvFileName(title: string, dueAt: Date): string {
-  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50) || "homework";
+  const slug =
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 50) || "homework";
   return `${slug}-scores-${dueAt.toISOString().slice(0, 10)}.csv`;
 }

@@ -8,13 +8,26 @@ import { DropZone, FileRow, type UploadStatus } from "./file-drop";
 import { downloadUrl, fileProblem, MAX_HANDOUTS } from "./file-rules";
 
 type Existing = { id: string; name: string; size: number };
-type Upload = { key: number; file: File; status: UploadStatus; error: string | null };
+type Upload = {
+  key: number;
+  file: File;
+  status: UploadStatus;
+  error: string | null;
+};
 
 /**
  * Handout files for one homework. Anyone can add more at any time; removal only works on drafts,
  * because once assigned students may already be working from a file.
  */
-export function HandoutManager({ assignmentId, files, isDraft }: { assignmentId: string; files: Existing[]; isDraft: boolean }) {
+export function HandoutManager({
+  assignmentId,
+  files,
+  isDraft,
+}: {
+  assignmentId: string;
+  files: Existing[];
+  isDraft: boolean;
+}) {
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [rejected, setRejected] = useState<string[]>([]);
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -22,10 +35,13 @@ export function HandoutManager({ assignmentId, files, isDraft }: { assignmentId:
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const seq = useRef(0);
-  const busy = uploads.some((u) => u.status === "uploading" || u.status === "queued");
+  const busy = uploads.some(
+    (u) => u.status === "uploading" || u.status === "queued",
+  );
   const room = MAX_HANDOUTS - files.length - uploads.length;
 
-  const patch = (key: number, p: Partial<Upload>) => setUploads((u) => u.map((x) => (x.key === key ? { ...x, ...p } : x)));
+  const patch = (key: number, p: Partial<Upload>) =>
+    setUploads((u) => u.map((x) => (x.key === key ? { ...x, ...p } : x)));
 
   async function addFiles(list: File[]) {
     const bad: string[] = [];
@@ -33,8 +49,17 @@ export function HandoutManager({ assignmentId, files, isDraft }: { assignmentId:
     for (const f of list) {
       const problem = fileProblem(f);
       if (problem) bad.push(`${f.name}: ${problem}`);
-      else if (good.length >= room) bad.push(`${f.name}: a homework can have at most ${MAX_HANDOUTS} files.`);
-      else good.push({ key: ++seq.current, file: f, status: "queued", error: null });
+      else if (good.length >= room)
+        bad.push(
+          `${f.name}: a homework can have at most ${MAX_HANDOUTS} files.`,
+        );
+      else
+        good.push({
+          key: ++seq.current,
+          file: f,
+          status: "queued",
+          error: null,
+        });
     }
     setRejected(bad);
     if (!good.length) return;
@@ -55,7 +80,10 @@ export function HandoutManager({ assignmentId, files, isDraft }: { assignmentId:
           setStatus(`${g.file.name} failed: ${r.error}`);
         }
       } catch {
-        patch(g.key, { status: "error", error: "The upload failed. Check your connection and try again." });
+        patch(g.key, {
+          status: "error",
+          error: "The upload failed. Check your connection and try again.",
+        });
       }
     }
   }
@@ -72,7 +100,11 @@ export function HandoutManager({ assignmentId, files, isDraft }: { assignmentId:
 
   return (
     <div className="space-y-3">
-      {files.length === 0 && uploads.length === 0 && <p className="text-sm text-ink-2">No handout files. Students will only see your instructions.</p>}
+      {files.length === 0 && uploads.length === 0 && (
+        <p className="text-sm text-ink-2">
+          No handout files. Students will only see your instructions.
+        </p>
+      )}
       {(files.length > 0 || uploads.length > 0) && (
         <ul className="space-y-2" aria-label="Handout files">
           {files.map((f) => (
@@ -84,12 +116,29 @@ export function HandoutManager({ assignmentId, files, isDraft }: { assignmentId:
               onRemove={isDraft ? () => setConfirmId(f.id) : undefined}
               extra={
                 confirmId === f.id ? (
-                  <span role="group" aria-label={`Confirm removing ${f.name}`} className="mt-2 flex flex-wrap items-center gap-2">
-                    <span className="text-sm text-ink">Remove this file from the draft?</span>
-                    <Button type="button" variant="danger" size="sm" disabled={removing === f.id} onClick={() => remove(f.id)}>
+                  <span
+                    role="group"
+                    aria-label={`Confirm removing ${f.name}`}
+                    className="mt-2 flex flex-wrap items-center gap-2"
+                  >
+                    <span className="text-sm text-ink">
+                      Remove this file from the draft?
+                    </span>
+                    <Button
+                      type="button"
+                      variant="danger"
+                      size="sm"
+                      disabled={removing === f.id}
+                      onClick={() => remove(f.id)}
+                    >
                       {removing === f.id ? "Removing…" : "Yes, remove"}
                     </Button>
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmId(null)}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setConfirmId(null)}
+                    >
                       Keep
                     </Button>
                   </span>
@@ -104,19 +153,29 @@ export function HandoutManager({ assignmentId, files, isDraft }: { assignmentId:
               size={u.file.size}
               status={u.status}
               error={u.error}
-              onRemove={u.status === "error" ? () => setUploads((x) => x.filter((y) => y.key !== u.key)) : undefined}
+              onRemove={
+                u.status === "error"
+                  ? () => setUploads((x) => x.filter((y) => y.key !== u.key))
+                  : undefined
+              }
               removeLabel="Dismiss"
             />
           ))}
         </ul>
       )}
       {removeError && (
-        <p role="alert" className="rounded-lg bg-risk-soft px-3 py-2 text-sm text-risk">
+        <p
+          role="alert"
+          className="rounded-lg bg-risk-soft px-3 py-2 text-sm text-risk"
+        >
           {removeError}
         </p>
       )}
       {rejected.length > 0 && (
-        <div role="alert" className="rounded-lg bg-risk-soft px-3 py-2 text-sm text-risk">
+        <div
+          role="alert"
+          className="rounded-lg bg-risk-soft px-3 py-2 text-sm text-risk"
+        >
           <p className="font-semibold">Not added</p>
           <ul className="mt-1 list-disc pl-5">
             {rejected.map((r) => (
@@ -126,9 +185,17 @@ export function HandoutManager({ assignmentId, files, isDraft }: { assignmentId:
         </div>
       )}
       {room > 0 ? (
-        <DropZone onFiles={addFiles} disabled={busy} title="Add handout files" hint={`${plural(room, "more file")} allowed`} className="py-4" />
+        <DropZone
+          onFiles={addFiles}
+          disabled={busy}
+          title="Add handout files"
+          hint={`${plural(room, "more file")} allowed`}
+          className="py-4"
+        />
       ) : (
-        <p className="text-sm text-ink-2">This homework has the maximum of {MAX_HANDOUTS} handout files.</p>
+        <p className="text-sm text-ink-2">
+          This homework has the maximum of {MAX_HANDOUTS} handout files.
+        </p>
       )}
       <p className="text-sm text-ink-2">
         {isDraft

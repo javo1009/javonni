@@ -284,7 +284,7 @@ export default async function QuestionBankPage({
                 placeholder="e.g. duration, covenant, p-value"
               />
             </div>
-            <div className="w-40 space-y-1.5 max-sm:flex-1">
+            <div className="w-40 space-y-1.5 max-sm:w-full max-sm:basis-full">
               <label
                 htmlFor="qdiff"
                 className="block text-sm font-medium text-ink"
