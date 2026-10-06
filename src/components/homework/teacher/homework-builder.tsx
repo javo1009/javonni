@@ -18,10 +18,7 @@ type Item = { key: string; kind: "file" | "text"; prompt: string; points: string
 type Queued = { key: string; file: File; status: UploadStatus; error: string | null };
 type ShowAnswers = "never" | "after_due" | "immediately";
 
-let keySeq = 0;
-const nextKey = () => `k${++keySeq}`;
-
-const newFileItem = (): Item => ({ key: nextKey(), kind: "file", prompt: "Upload your completed worksheet", points: "10" });
+const firstItem = (): Item => ({ key: "k0", kind: "file", prompt: "Upload your completed worksheet", points: "10" });
 
 const noopSubscribe = () => () => {};
 const browserZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -47,6 +44,9 @@ export function HomeworkBuilder({
 }) {
   const router = useRouter();
   const uid = useId();
+  // Keys only need to be unique within this form; a per-instance counter keeps server and client output identical.
+  const keySeq = useRef(0);
+  const nextKey = () => `k${++keySeq.current}`;
   const [classId, setClassId] = useState(defaultClassId);
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
@@ -56,7 +56,7 @@ export function HomeworkBuilder({
   const [studentIds, setStudentIds] = useState<Set<string>>(new Set());
   const [queued, setQueued] = useState<Queued[]>([]);
   const [rejected, setRejected] = useState<{ name: string; reason: string }[]>([]);
-  const [items, setItems] = useState<Item[]>(() => [newFileItem()]);
+  const [items, setItems] = useState<Item[]>(() => [firstItem()]);
   const [mcq, setMcq] = useState<QuestionPreview[]>([]);
   const [mcqOpen, setMcqOpen] = useState(!!presetModuleId);
   const [mcqPoints, setMcqPoints] = useState("1");
@@ -453,7 +453,9 @@ export function HomeworkBuilder({
             </CardBody>
           </Card>
 
-          {/* 2 · Handout */}
+        </fieldset>
+
+          {/* 2 · Handout (outside the locked fieldset so failed files can still be dismissed) */}
           <Card aria-labelledby={`${uid}-files`}>
             <CardHeader
               id={`${uid}-files`}
@@ -483,7 +485,8 @@ export function HomeworkBuilder({
                       size={q.file.size}
                       status={draftId ? q.status : undefined}
                       error={q.error}
-                      onRemove={locked ? undefined : () => setQueued((xs) => xs.filter((x) => x.key !== q.key))}
+                      onRemove={locked && q.status !== "error" ? undefined : () => setQueued((xs) => xs.filter((x) => x.key !== q.key))}
+                      removeLabel={q.status === "error" ? "Dismiss" : "Remove"}
                     />
                   ))}
                 </ul>
@@ -498,6 +501,7 @@ export function HomeworkBuilder({
             </CardBody>
           </Card>
 
+        <fieldset disabled={locked} className="min-w-0 space-y-6">
           {/* 3 · What students hand in */}
           <Card aria-labelledby={`${uid}-items`}>
             <CardHeader id={`${uid}-items`} title="3 · What students hand in" subtitle="Usually one uploaded file. Add written answers or auto-marked questions if you want them." />
@@ -719,14 +723,14 @@ export function HomeworkBuilder({
                 )}
               </div>
             )}
-            {draftId && queued.some((q) => q.status === "error") && (
-              <Button type="button" className="w-full" variant="secondary" disabled={busy !== null} onClick={() => void submit(wantAssign)}>
+            {draftId && queued.some((q) => q.status === "error") && busy === null && (
+              <Button type="button" className="w-full" variant="secondary" onClick={() => void submit(wantAssign)}>
                 Retry failed uploads{wantAssign ? " and assign" : ""}
               </Button>
             )}
-            {draftId && !queued.some((q) => q.status === "error") && formError && (
-              <Button type="button" className="w-full" variant="secondary" disabled={busy !== null} onClick={() => void submit(true)}>
-                Try assigning again
+            {draftId && !queued.some((q) => q.status === "error") && formError && busy === null && (
+              <Button type="button" className="w-full" variant="secondary" onClick={() => void (wantAssign ? submit(true) : router.push(`/teacher/homework/${draftId}`))}>
+                {wantAssign ? "Assign now" : "Open the draft"}
               </Button>
             )}
 

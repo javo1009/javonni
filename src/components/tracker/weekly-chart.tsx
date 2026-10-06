@@ -1,5 +1,5 @@
 import { TableWrap, td, th } from "@/components/ui";
-import { formatShortDate } from "@/lib/format";
+import { formatShortDate } from "@/lib/tracker-dates";
 import { fmtHours, labelStep, niceTicks, weekRange } from "@/lib/tracker-view";
 import { addDays } from "@/domain/dates";
 import type { TrackerSnapshot } from "@/services/tracker";

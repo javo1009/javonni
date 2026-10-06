@@ -4,7 +4,7 @@
 import { addDays, diffDays, isValidDate, type ISODate } from "@/domain/dates";
 import { TRACKER, chapterStatus } from "@/domain/tracker";
 import type { ChapterPatch, ChapterView, TopicView, TrackerSnapshot } from "@/services/tracker";
-import { formatShortDate } from "./format";
+import { formatShortDate } from "./tracker-dates";
 
 // ------------------------------------------------------------------ filters
 export type StatusFilter = "all" | "unread" | "in-progress" | "done" | "due" | "weak";

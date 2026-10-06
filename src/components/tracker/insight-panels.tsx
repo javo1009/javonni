@@ -2,7 +2,8 @@
 // exam-weighted coverage and confidence calibration. Shared by the student pages and the read-only teacher view.
 import { TRACKER } from "@/domain/tracker";
 import { Badge, ButtonLink, Button, ProgressBar } from "@/components/ui";
-import { formatShortDate, plural } from "@/lib/format";
+import { plural } from "@/lib/format";
+import { formatShortDate } from "@/lib/tracker-dates";
 import {
   biggestWeightGap,
   fmtHours,

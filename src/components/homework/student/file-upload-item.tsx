@@ -197,7 +197,7 @@ export function FileUploadItem({
         className={cn(
           "relative flex flex-col items-center gap-3 rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors",
           disabled
-            ? "border-border bg-surface-2 opacity-70"
+            ? "border-border bg-surface-2"
             : dragging
               ? "border-brand bg-brand-soft"
               : "border-border-strong bg-surface-2/60",

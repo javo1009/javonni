@@ -2,7 +2,7 @@
 // All take plain snapshot data and, where a panel can change something, an update callback.
 import { Badge, Metric, ProgressBar } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { formatDayLong, formatShortDate } from "@/lib/format";
+import { formatDayLong, formatShortDate } from "@/lib/tracker-dates";
 import { TRACKER } from "@/domain/tracker";
 import { fmtHours, phaseLabel, weekRange, type ChapterCounts, type TopicCounts } from "@/lib/tracker-view";
 import type { ChapterView, TrackerSnapshot } from "@/services/tracker";

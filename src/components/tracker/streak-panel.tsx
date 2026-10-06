@@ -1,7 +1,8 @@
 import { Flame } from "lucide-react";
 import { Badge } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { formatDay, formatMinutes, plural } from "@/lib/format";
+import { formatMinutes, plural } from "@/lib/format";
+import { formatDay } from "@/lib/tracker-dates";
 import type { TrackerSnapshot } from "@/services/tracker";
 import { Panel } from "./panel";
 
@@ -54,7 +55,7 @@ export function StreakPanel({ consistency, weeklyTargetHours }: { consistency: T
       </dl>
       <p className="mt-3 text-sm text-ink-2">Short, regular sessions beat occasional marathons: steady study is one of the best predictors of retention.</p>
 
-      <div className="mt-4 flex gap-2" role="group" aria-label="Study days over the last 12 weeks">
+      <div className="mt-4 flex max-w-md gap-2" role="group" aria-label="Study days over the last 12 weeks">
         <div aria-hidden className="grid grid-rows-7 gap-[3px] pt-0 text-[0.65rem] leading-none text-ink-3">
           {DAYS.map((d, i) => (
             <span key={d} className="flex items-center">
