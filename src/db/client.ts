@@ -13,7 +13,13 @@ const cache: Cache = (globalForDb.__ascentDb ??= {});
  * connects until the first query. `prepare: false` keeps it compatible with
  * pooled (pgbouncer-style) connection strings such as Neon's `-pooler` host.
  */
-export function getDb(url = process.env.DATABASE_URL): Db {
+/** Runtime (pooled) connection string. Accepts the names Vercel/Neon integrations commonly inject. */
+export const databaseUrl = () => process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
+/** Direct (non-pooled) connection string for migrations, falling back to the pooled one. */
+export const directDatabaseUrl = () =>
+  process.env.DATABASE_URL_UNPOOLED ?? process.env.POSTGRES_URL_NON_POOLING ?? databaseUrl();
+
+export function getDb(url = databaseUrl()): Db {
   if (!url) {
     throw new Error("DATABASE_URL is not set. See .env.example and README.md.");
   }

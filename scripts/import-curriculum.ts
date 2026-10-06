@@ -6,7 +6,7 @@
 //   options: --name "CFA Level I 2027"  --year 2027  --note "Source PDF, downloaded 2026-10-06"
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { closeDb, getDb } from "../src/db/client";
+import { closeDb, directDatabaseUrl, getDb } from "../src/db/client";
 import { diffCurricula, draftStats, parseCurriculumCsv } from "../src/domain/curriculum-csv";
 import { curriculumShape, importCurriculumFromCli } from "../src/services/admin";
 import { getActiveCurriculum } from "../src/services/curriculum";
@@ -70,7 +70,7 @@ async function main() {
     process.exit(1);
   }
 
-  const url = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
+  const url = directDatabaseUrl();
   if (!url) usage("Set DATABASE_URL (or DATABASE_URL_UNPOOLED).");
   const db = getDb(url);
   try {

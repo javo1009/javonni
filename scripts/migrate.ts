@@ -1,7 +1,8 @@
+import { directDatabaseUrl } from "../src/db/client";
 import { runMigrations } from "../src/db/migrate";
 
 async function main() {
-  const url = process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
+  const url = directDatabaseUrl();
   if (!url) {
     console.error("Set DATABASE_URL (or DATABASE_URL_UNPOOLED) before running migrations.");
     process.exit(1);

@@ -5,7 +5,7 @@
 // The password comes from ASCENT_NEW_PASSWORD, or is prompted for (twice, not echoed)
 // when run in a terminal. It is never accepted as a command-line argument, so it
 // doesn't end up in shell history or process listings.
-import { closeDb, getDb } from "../src/db/client";
+import { closeDb, directDatabaseUrl, getDb } from "../src/db/client";
 import { createUser } from "../src/services/users";
 import type { Role } from "../src/services/types";
 
@@ -94,7 +94,7 @@ async function main() {
     process.exit(1);
   }
 
-  const url = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
+  const url = directDatabaseUrl();
   if (!url) usage("Set DATABASE_URL (or DATABASE_URL_UNPOOLED).");
   const db = getDb(url);
   try {

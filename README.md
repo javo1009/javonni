@@ -126,7 +126,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests against a Postgres 1
 
 ## Deploying
 
-See [`docs/cfa-platform/DEPLOY.md`](docs/cfa-platform/DEPLOY.md) for a step-by-step Vercel + Neon guide.
+Import the repository in Vercel, connect a Neon Postgres database (Storage), set `SESSION_SECRET` (plus `ADMIN_EMAIL`/`ADMIN_PASSWORD` for the first admin) and deploy. The `vercel-build` script runs migrations and seeds the sample curriculum automatically before `next build`; no local tools are needed. Step-by-step: [`docs/cfa-platform/DEPLOY.md`](docs/cfa-platform/DEPLOY.md).
 
 ## Known limitations
 
