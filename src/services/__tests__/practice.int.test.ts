@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { attempts, losProgress, questions } from "@/db/schema";
+import { attempts, losProgress, questionLos, questions } from "@/db/schema";
 import { seedSampleCurriculum } from "@/db/seed/sample";
 import { createTestDb, type TestDb } from "@/test/db";
 import { getActiveCurriculum } from "../curriculum";
@@ -96,9 +96,14 @@ describe("recordAttempt", () => {
   it("walks a LOS from studied to proficient across two days, and lowers it after mistakes", async () => {
     const c = await getActiveCurriculum(t.db);
     const los = c.los.find((l) => l.code === "QM.1.a")!;
-    const qs = await t.db.select({ id: questions.id, correct: questions.correctKey }).from(questions);
-    const [q] = await pickQuestions(t.db, other, { kind: "los", id: los.id }, 1);
-    const real = qs.find((x) => x.id === q.id)!;
+    // Use the objective's easy question (weight 0.5) so the thresholds below are exact.
+    const linked = await t.db
+      .select({ id: questions.id, correct: questions.correctKey, difficulty: questions.difficulty })
+      .from(questions)
+      .innerJoin(questionLos, eq(questionLos.questionId, questions.id))
+      .where(eq(questionLos.losId, los.id));
+    const real = linked.find((x) => x.difficulty === 1)!;
+    const q = { id: real.id };
     const day1 = Date.UTC(2026, 10, 2, 10);
     const day2 = Date.UTC(2026, 10, 3, 10);
     for (let i = 0; i < 3; i++) await recordAttempt(t.db, other, { questionId: q.id, chosenKey: real.correct, mode: "practice" }, day1 + i * 1000);

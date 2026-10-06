@@ -248,6 +248,16 @@ describe("homework round trip", () => {
   });
 });
 
+describe("homework stats", () => {
+  it("doesn't count homework due before a student joined as missed", async () => {
+    const late = await actor("latejoin@x.test", "student");
+    await t.db.insert(enrollments).values({ classId, studentId: late.id, joinedAt: new Date("2026-11-18T00:00:00Z") });
+    const stats = await homeworkStats(t.db, classId, new Date("2026-11-20T00:00:00Z"));
+    expect(stats.missedByStudent.get(late.id) ?? 0).toBe(0);
+    await t.db.delete(enrollments).where(eq(enrollments.studentId, late.id));
+  });
+});
+
 describe("class overview", () => {
   it("builds KPIs, alerts and a teach-next suggestion", async () => {
     const stats = await homeworkStats(t.db, classId, new Date("2026-11-20T00:00:00Z"));

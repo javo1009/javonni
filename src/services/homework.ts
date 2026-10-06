@@ -508,7 +508,10 @@ export async function homeworkStats(db: Db, classId: string, now = new Date()) {
     .from(assignments)
     .where(and(eq(assignments.classId, classId), eq(assignments.status, "assigned"), lt(assignments.dueAt, now)));
   const recent = due.filter((a) => a.dueAt >= since);
-  const roster = await db.select({ id: enrollments.studentId }).from(enrollments).where(eq(enrollments.classId, classId));
+  const roster = await db
+    .select({ id: enrollments.studentId, joinedAt: enrollments.joinedAt })
+    .from(enrollments)
+    .where(eq(enrollments.classId, classId));
   const subs = due.length
     ? await db.select().from(submissions).where(inArray(submissions.assignmentId, due.map((a) => a.id)))
     : [];
@@ -518,6 +521,8 @@ export async function homeworkStats(db: Db, classId: string, now = new Date()) {
   for (const a of due) {
     for (const r of roster) {
       if (!isTargeted(a, r.id)) continue;
+      // Work that was due before the student joined the class doesn't count against them.
+      if (a.dueAt < r.joinedAt) continue;
       expected++;
       const s = subs.find((x) => x.assignmentId === a.id && x.studentId === r.id && x.submittedAt);
       if (s && !s.late) onTime++;

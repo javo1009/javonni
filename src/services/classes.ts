@@ -62,7 +62,13 @@ export async function createClass(db: Db, actor: Actor, input: { name: string; e
 export async function listClasses(db: Db, actor: Actor) {
   if (actor.role === "student") {
     return db
-      .select({ id: classes.id, name: classes.name, examDate: classes.examDate, joinCode: sql<string>`''` })
+      .select({
+        id: classes.id,
+        name: classes.name,
+        examDate: classes.examDate,
+        joinCode: sql<string>`''`,
+        students: sql<number>`0`,
+      })
       .from(enrollments)
       .innerJoin(classes, eq(classes.id, enrollments.classId))
       .where(eq(enrollments.studentId, actor.id));
