@@ -328,7 +328,7 @@ export function buildSnapshot(input: {
   const mockList = [...mocks].sort((a, b) => a.date.localeCompare(b.date));
   const stats = mockStats(mockList);
   const windows = new Map(roadmap.topics.map((w) => [w.topicId, w]));
-  const activeTopicId = focusModel({ roadmap, modules: cur.modules, states, today });
+  const focus = focusModel({ roadmap, modules: cur.modules, states, today });
 
   const topicViews: TopicView[] = cur.topics.map((t) => {
     const p = progress.get(t.id)!;
@@ -401,7 +401,7 @@ export function buildSnapshot(input: {
     week: { ...week, hours: weekHours, targetHours: weeklyTargetHours },
     pace,
     chapterPace,
-    focus: activeTopicId,
+    focus,
     actions,
     reviewQueue: queue,
     consistency: computeConsistency(byDate, today, weeklyTargetHours),
