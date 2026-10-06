@@ -7,6 +7,7 @@
 // Set SKIP_DB_SETUP=1 to skip everything (e.g. preview builds without a database).
 import { eq } from "drizzle-orm";
 import { closeDb, databaseUrl, directDatabaseUrl, getDb } from "../src/db/client";
+import { databaseLikeEnvNames } from "../src/db/env";
 import { runMigrations } from "../src/db/migrate";
 import { users } from "../src/db/schema";
 import { DEMO_DOMAIN, seedDemo } from "../src/db/seed/demo";
@@ -25,8 +26,16 @@ async function main() {
   }
   const pooled = databaseUrl();
   const direct = directDatabaseUrl();
-  if (!pooled || !direct)
-    fail("DATABASE_URL is not set. In Vercel: Storage → create/connect a Postgres (Neon) database to this project, then redeploy.");
+  if (!pooled || !direct) {
+    const seen = databaseLikeEnvNames();
+    fail(
+      "No Postgres connection string found (looked for DATABASE_URL, POSTGRES_URL and prefixed variants).\n" +
+        "  In Vercel: Storage → create a Neon database → Connect it to this project (Production), then redeploy.\n" +
+        (seen.length
+          ? `  Database-looking variables present (names only): ${seen.join(", ")}`
+          : "  No database-looking variables are set in this environment at all, so the database isn't connected to it yet."),
+    );
+  }
   const secret = process.env.SESSION_SECRET;
   if (!secret || secret.length < 32)
     fail("SESSION_SECRET must be set to a random string of at least 32 characters (Settings → Environment Variables).");

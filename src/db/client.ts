@@ -1,5 +1,6 @@
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { findDatabaseUrl, findDirectDatabaseUrl } from "./env";
 import * as schema from "./schema";
 
 export type Db = PostgresJsDatabase<typeof schema>;
@@ -8,17 +9,16 @@ type Cache = { sql?: ReturnType<typeof postgres>; db?: Db; url?: string };
 const globalForDb = globalThis as unknown as { __ascentDb?: Cache };
 const cache: Cache = (globalForDb.__ascentDb ??= {});
 
+/** Runtime (pooled) connection string. Accepts the names Vercel/Neon integrations inject. */
+export const databaseUrl = () => findDatabaseUrl();
+/** Direct (non-pooled) connection string for migrations, falling back to the pooled one. */
+export const directDatabaseUrl = () => findDirectDatabaseUrl();
+
 /**
  * Lazily-created, process-wide connection. Safe to import at build time: nothing
  * connects until the first query. `prepare: false` keeps it compatible with
  * pooled (pgbouncer-style) connection strings such as Neon's `-pooler` host.
  */
-/** Runtime (pooled) connection string. Accepts the names Vercel/Neon integrations commonly inject. */
-export const databaseUrl = () => process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
-/** Direct (non-pooled) connection string for migrations, falling back to the pooled one. */
-export const directDatabaseUrl = () =>
-  process.env.DATABASE_URL_UNPOOLED ?? process.env.POSTGRES_URL_NON_POOLING ?? databaseUrl();
-
 export function getDb(url = databaseUrl()): Db {
   if (!url) {
     throw new Error("DATABASE_URL is not set. See .env.example and README.md.");
