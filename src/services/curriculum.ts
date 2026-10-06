@@ -37,6 +37,14 @@ export async function getActiveCurriculum(db: Db, versionId?: string): Promise<C
     ? await db.select().from(los).where(inArray(los.moduleId, moduleIds)).orderBy(asc(los.order))
     : [];
 
+  // Objectives in curriculum order: topic, then module, then LOS order.
+  const moduleRank = new Map(
+    [...moduleRows]
+      .sort((a, b) => topicRows.findIndex((t) => t.id === a.topicId) - topicRows.findIndex((t) => t.id === b.topicId) || a.order - b.order)
+      .map((m, i) => [m.id, i]),
+  );
+  losRows.sort((a, b) => moduleRank.get(a.moduleId)! - moduleRank.get(b.moduleId)! || a.order - b.order);
+
   const losByModule = new Map<string, string[]>();
   for (const l of losRows) losByModule.set(l.moduleId, [...(losByModule.get(l.moduleId) ?? []), l.id]);
 

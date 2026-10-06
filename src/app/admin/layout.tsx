@@ -1,6 +1,6 @@
 import { AppShell } from "@/components/shell/app-shell";
 import type { NavItem } from "@/components/shell/nav-links";
-import { adminContext, getCurriculum } from "@/server/context";
+import { adminContext, getCurriculumOrNull } from "@/server/context";
 
 const NAV: NavItem[] = [
   { href: "/admin", label: "Overview", icon: "cockpit", exact: true },
@@ -12,9 +12,9 @@ const NAV: NavItem[] = [
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const { user } = await adminContext();
-  const c = await getCurriculum();
+  const c = await getCurriculumOrNull();
   return (
-    <AppShell nav={NAV} user={user} areaLabel="Admin" sampleCurriculum={c.version.isSample}>
+    <AppShell nav={NAV} user={user} areaLabel="Admin" sampleCurriculum={c?.version.isSample ?? false}>
       {children}
     </AppShell>
   );
