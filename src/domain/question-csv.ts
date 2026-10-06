@@ -15,7 +15,18 @@ export const QUESTION_CSV = {
   minExplanation: 5,
   maxSource: 80,
   /** Column order of the template and the export. */
-  columns: ["module", "stem", "a", "b", "c", "d", "correct", "explanation", "difficulty", "source"] as const,
+  columns: [
+    "module",
+    "stem",
+    "a",
+    "b",
+    "c",
+    "d",
+    "correct",
+    "explanation",
+    "difficulty",
+    "source",
+  ] as const,
 };
 
 export type QuestionColumn = (typeof QUESTION_CSV.columns)[number];
@@ -100,7 +111,11 @@ export function parseCsv(input: string): CsvParse {
     fieldStart = false;
     field += ch;
   }
-  if (inQuotes) return { records: [], error: `A quoted cell that starts on line ${quoteLine} is never closed (missing closing quote).` };
+  if (inQuotes)
+    return {
+      records: [],
+      error: `A quoted cell that starts on line ${quoteLine} is never closed (missing closing quote).`,
+    };
   // Last record without a trailing newline.
   if (field !== "" || cells.length > 0 || !fieldStart) endRecord();
   return { records };
@@ -117,8 +132,15 @@ export function csvCell(value: string | number | null | undefined): string {
 }
 
 /** Rows to CSV text with CRLF line endings; `bom` helps Excel read UTF-8. */
-export function toCsv(rows: (string | number | null | undefined)[][], opts: { bom?: boolean } = {}): string {
-  return (opts.bom ? "﻿" : "") + rows.map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
+export function toCsv(
+  rows: (string | number | null | undefined)[][],
+  opts: { bom?: boolean } = {},
+): string {
+  return (
+    (opts.bom ? "﻿" : "") +
+    rows.map((r) => r.map(csvCell).join(",")).join("\r\n") +
+    "\r\n"
+  );
 }
 
 /** Undo the writer's formula guard so an exported file imports back unchanged. */
@@ -128,7 +150,13 @@ export function unguardCell(s: string): string {
 
 // -------------------------------------------------------- module references
 
-export type ModuleIndexEntry = { id: string; slug: string; number: number; topicCode: string; topicName: string };
+export type ModuleIndexEntry = {
+  id: string;
+  slug: string;
+  number: number;
+  topicCode: string;
+  topicName: string;
+};
 
 export type ModuleIndex = {
   bySlug: Map<string, ModuleIndexEntry>;
@@ -138,10 +166,18 @@ export type ModuleIndex = {
   byName: Map<string, Map<number, ModuleIndexEntry>>;
 };
 
-const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const squash = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 
 export function buildModuleIndex(entries: ModuleIndexEntry[]): ModuleIndex {
-  const idx: ModuleIndex = { bySlug: new Map(), byCode: new Map(), byName: new Map() };
+  const idx: ModuleIndex = {
+    bySlug: new Map(),
+    byCode: new Map(),
+    byName: new Map(),
+  };
   for (const e of entries) {
     idx.bySlug.set(e.slug.toLowerCase(), e);
     for (const [map, key] of [
@@ -155,17 +191,24 @@ export function buildModuleIndex(entries: ModuleIndexEntry[]): ModuleIndex {
   return idx;
 }
 
-export type ModuleResolution = { ok: true; entry: ModuleIndexEntry } | { ok: false; error: string };
+export type ModuleResolution =
+  | { ok: true; entry: ModuleIndexEntry }
+  | { ok: false; error: string };
 
 /**
  * Accepts a slug (`quantitative-methods-04`), a topic code and number (`QM 4`, `qm-04`, `QM4`),
  * or a topic name and number (`Quantitative Methods 4`).
  */
-export function resolveModuleRef(raw: string, index: ModuleIndex): ModuleResolution {
+export function resolveModuleRef(
+  raw: string,
+  index: ModuleIndex,
+): ModuleResolution {
   const ref = raw.trim();
-  const hint = "Use a module slug like quantitative-methods-04, or a topic code and number like QM 4.";
+  const hint =
+    "Use a module slug like quantitative-methods-04, or a topic code and number like QM 4.";
   if (!ref) return { ok: false, error: `Module is empty. ${hint}` };
-  if (ref.length > 120) return { ok: false, error: "Module reference is too long." };
+  if (ref.length > 120)
+    return { ok: false, error: "Module reference is too long." };
 
   const slug = index.bySlug.get(ref.toLowerCase());
   if (slug) return { ok: true, entry: slug };
@@ -181,10 +224,16 @@ export function resolveModuleRef(raw: string, index: ModuleIndex): ModuleResolut
       if (hit) return { ok: true, entry: hit };
       const nums = [...topic.keys()].sort((a, b) => a - b);
       const sample = [...topic.values()][0];
-      return { ok: false, error: `${sample.topicName} has no module ${number} (it has ${nums[0]}–${nums[nums.length - 1]}).` };
+      return {
+        ok: false,
+        error: `${sample.topicName} has no module ${number} (it has ${nums[0]}–${nums[nums.length - 1]}).`,
+      };
     }
   }
-  return { ok: false, error: `Module "${ref.length > 40 ? `${ref.slice(0, 40)}…` : ref}" was not found in the active curriculum. ${hint}` };
+  return {
+    ok: false,
+    error: `Module "${ref.length > 40 ? `${ref.slice(0, 40)}…` : ref}" was not found in the active curriculum. ${hint}`,
+  };
 }
 
 // ------------------------------------------------------------------ rows
@@ -201,11 +250,30 @@ export type QuestionDraft = {
   source: string;
 };
 
-export type RowIssue = { row: number; line: number; messages: string[]; module: string; stem: string };
+export type RowIssue = {
+  row: number;
+  line: number;
+  messages: string[];
+  module: string;
+  stem: string;
+};
 
 export type ParsedRow =
-  | { ok: true; row: number; line: number; draft: QuestionDraft; module: string }
-  | { ok: false; row: number; line: number; errors: string[]; module: string; stem: string };
+  | {
+      ok: true;
+      row: number;
+      line: number;
+      draft: QuestionDraft;
+      module: string;
+    }
+  | {
+      ok: false;
+      row: number;
+      line: number;
+      errors: string[];
+      module: string;
+      stem: string;
+    };
 
 export type QuestionCsvParse = {
   /** Problems with the file as a whole (missing columns, too many rows…). When present, `rows` is empty. */
@@ -238,20 +306,39 @@ const HEADER_ALIASES: Record<string, QuestionColumn> = {
   level: "difficulty",
   source: "source",
 };
-const REQUIRED: QuestionColumn[] = ["module", "stem", "a", "b", "c", "correct", "explanation", "difficulty"];
-// eslint-disable-next-line no-control-regex
+const REQUIRED: QuestionColumn[] = [
+  "module",
+  "stem",
+  "a",
+  "b",
+  "c",
+  "correct",
+  "explanation",
+  "difficulty",
+];
 const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 
 /** Normalised text used to spot duplicate stems. */
-export const stemKey = (stem: string) => stem.toLowerCase().replace(/\s+/g, " ").trim();
+export const stemKey = (stem: string) =>
+  stem.toLowerCase().replace(/\s+/g, " ").trim();
 
 const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
 const multiLine = (s: string) => s.replace(/\r\n?/g, "\n").trim();
 
 /** Parse and validate a question CSV against the module index. Nothing here touches a database. */
-export function parseQuestionCsv(text: string, index: ModuleIndex): QuestionCsvParse {
-  const fail = (...fileErrors: string[]): QuestionCsvParse => ({ fileErrors, fileWarnings: [], rows: [] });
-  if (new TextEncoder().encode(text).length > QUESTION_CSV.maxBytes) return fail(`The file is larger than ${QUESTION_CSV.maxBytes / 1000} KB. Split it into smaller files.`);
+export function parseQuestionCsv(
+  text: string,
+  index: ModuleIndex,
+): QuestionCsvParse {
+  const fail = (...fileErrors: string[]): QuestionCsvParse => ({
+    fileErrors,
+    fileWarnings: [],
+    rows: [],
+  });
+  if (new TextEncoder().encode(text).length > QUESTION_CSV.maxBytes)
+    return fail(
+      `The file is larger than ${QUESTION_CSV.maxBytes / 1000} KB. Split it into smaller files.`,
+    );
   if (!text.trim()) return fail("The file is empty.");
 
   const parsed = parseCsv(text);
@@ -260,7 +347,9 @@ export function parseQuestionCsv(text: string, index: ModuleIndex): QuestionCsvP
   if (!head) return fail("The file is empty.");
 
   if (head.cells.length === 1 && /[;\t]/.test(head.cells[0])) {
-    return fail("This looks like a semicolon- or tab-separated file. Save it as comma-separated CSV (UTF-8) and try again.");
+    return fail(
+      "This looks like a semicolon- or tab-separated file. Save it as comma-separated CSV (UTF-8) and try again.",
+    );
   }
 
   // Header -> column positions.
@@ -268,7 +357,10 @@ export function parseQuestionCsv(text: string, index: ModuleIndex): QuestionCsvP
   const ignored: string[] = [];
   const dupes: string[] = [];
   head.cells.forEach((cell, i) => {
-    const key = cell.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    const key = cell
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
     if (!key) return;
     const col = HEADER_ALIASES[key];
     if (!col) return void ignored.push(cell.trim().slice(0, 40));
@@ -277,14 +369,26 @@ export function parseQuestionCsv(text: string, index: ModuleIndex): QuestionCsvP
   });
   const missing = REQUIRED.filter((c) => !pos.has(c));
   const fileErrors: string[] = [];
-  if (missing.length) fileErrors.push(`The header row is missing: ${missing.join(", ")}. Expected columns: ${QUESTION_CSV.columns.join(", ")}.`);
-  if (dupes.length) fileErrors.push(`The header repeats a column: ${[...new Set(dupes)].join(", ")}.`);
+  if (missing.length)
+    fileErrors.push(
+      `The header row is missing: ${missing.join(", ")}. Expected columns: ${QUESTION_CSV.columns.join(", ")}.`,
+    );
+  if (dupes.length)
+    fileErrors.push(
+      `The header repeats a column: ${[...new Set(dupes)].join(", ")}.`,
+    );
   const data = body.filter((r) => r.cells.some((c) => c.trim() !== ""));
-  if (data.length === 0 && fileErrors.length === 0) fileErrors.push("The file has a header but no questions.");
-  if (data.length > QUESTION_CSV.maxRows) fileErrors.push(`At most ${QUESTION_CSV.maxRows} questions per import (this file has ${data.length}). Split it into several files.`);
+  if (data.length === 0 && fileErrors.length === 0)
+    fileErrors.push("The file has a header but no questions.");
+  if (data.length > QUESTION_CSV.maxRows)
+    fileErrors.push(
+      `At most ${QUESTION_CSV.maxRows} questions per import (this file has ${data.length}). Split it into several files.`,
+    );
   if (fileErrors.length) return fail(...fileErrors);
 
-  const fileWarnings = ignored.length ? [`Ignored columns: ${[...new Set(ignored)].join(", ")}.`] : [];
+  const fileWarnings = ignored.length
+    ? [`Ignored columns: ${[...new Set(ignored)].join(", ")}.`]
+    : [];
   const cell = (r: CsvRecord, c: QuestionColumn) => {
     const i = pos.get(c);
     return i === undefined ? "" : unguardCell((r.cells[i] ?? "").trim());
@@ -296,26 +400,44 @@ export function parseQuestionCsv(text: string, index: ModuleIndex): QuestionCsvP
     const stemRaw = cell(r, "stem");
     const bad = (m: string) => void errors.push(m);
 
-    if (r.cells.length > head.cells.length && r.cells.slice(head.cells.length).some((c) => c.trim())) {
-      bad("Has more cells than the header row. A comma inside a cell must be wrapped in double quotes.");
+    if (
+      r.cells.length > head.cells.length &&
+      r.cells.slice(head.cells.length).some((c) => c.trim())
+    ) {
+      bad(
+        "Has more cells than the header row. A comma inside a cell must be wrapped in double quotes.",
+      );
     }
-    if (r.cells.some((c) => CONTROL.test(c))) bad("Contains control characters. Remove them and try again.");
+    if (r.cells.some((c) => CONTROL.test(c)))
+      bad("Contains control characters. Remove them and try again.");
 
     const mod = resolveModuleRef(moduleRef, index);
     if (!mod.ok) bad(mod.error);
 
     const stem = multiLine(stemRaw);
-    if (stem.length < QUESTION_CSV.minStem) bad(`Stem is too short (at least ${QUESTION_CSV.minStem} characters).`);
-    if (stem.length > QUESTION_CSV.maxStem) bad(`Stem is too long (${stem.length} characters; the limit is ${QUESTION_CSV.maxStem}).`);
+    if (stem.length < QUESTION_CSV.minStem)
+      bad(`Stem is too short (at least ${QUESTION_CSV.minStem} characters).`);
+    if (stem.length > QUESTION_CSV.maxStem)
+      bad(
+        `Stem is too long (${stem.length} characters; the limit is ${QUESTION_CSV.maxStem}).`,
+      );
 
     const options: { key: string; text: string }[] = [];
-    for (const [k, col] of [["A", "a"], ["B", "b"], ["C", "c"], ["D", "d"]] as const) {
+    for (const [k, col] of [
+      ["A", "a"],
+      ["B", "b"],
+      ["C", "c"],
+      ["D", "d"],
+    ] as const) {
       const t = oneLine(cell(r, col));
       if (!t) {
         if (k !== "D") bad(`Option ${k} is empty.`);
         continue;
       }
-      if (t.length > QUESTION_CSV.maxOption) bad(`Option ${k} is too long (${t.length} characters; the limit is ${QUESTION_CSV.maxOption}).`);
+      if (t.length > QUESTION_CSV.maxOption)
+        bad(
+          `Option ${k} is too long (${t.length} characters; the limit is ${QUESTION_CSV.maxOption}).`,
+        );
       options.push({ key: k, text: t });
     }
     const seen = new Set<string>();
@@ -326,29 +448,61 @@ export function parseQuestionCsv(text: string, index: ModuleIndex): QuestionCsvP
     }
 
     const correct = cell(r, "correct").toUpperCase();
-    if (!/^[ABCD]$/.test(correct)) bad(`"correct" must be A, B, C or D${correct ? ` (got "${cell(r, "correct").slice(0, 10)}")` : ""}.`);
-    else if (!options.some((o) => o.key === correct)) bad(`The correct answer is ${correct}, but option ${correct} is empty.`);
+    if (!/^[ABCD]$/.test(correct))
+      bad(
+        `"correct" must be A, B, C or D${correct ? ` (got "${cell(r, "correct").slice(0, 10)}")` : ""}.`,
+      );
+    else if (!options.some((o) => o.key === correct))
+      bad(`The correct answer is ${correct}, but option ${correct} is empty.`);
 
     const explanation = multiLine(cell(r, "explanation"));
-    if (explanation.length < QUESTION_CSV.minExplanation) bad("Explanation is missing. Students see it after answering.");
-    if (explanation.length > QUESTION_CSV.maxExplanation) bad(`Explanation is too long (${explanation.length} characters; the limit is ${QUESTION_CSV.maxExplanation}).`);
+    if (explanation.length < QUESTION_CSV.minExplanation)
+      bad("Explanation is missing. Students see it after answering.");
+    if (explanation.length > QUESTION_CSV.maxExplanation)
+      bad(
+        `Explanation is too long (${explanation.length} characters; the limit is ${QUESTION_CSV.maxExplanation}).`,
+      );
 
     const diffRaw = cell(r, "difficulty");
-    const difficulty = /^[123]$/.test(diffRaw) ? (Number(diffRaw) as 1 | 2 | 3) : null;
-    if (difficulty === null) bad(`Difficulty must be 1 (easy), 2 (medium) or 3 (hard)${diffRaw ? ` (got "${diffRaw.slice(0, 10)}")` : ""}.`);
+    const difficulty = /^[123]$/.test(diffRaw)
+      ? (Number(diffRaw) as 1 | 2 | 3)
+      : null;
+    if (difficulty === null)
+      bad(
+        `Difficulty must be 1 (easy), 2 (medium) or 3 (hard)${diffRaw ? ` (got "${diffRaw.slice(0, 10)}")` : ""}.`,
+      );
 
     const source = oneLine(cell(r, "source"));
-    if (source.length > QUESTION_CSV.maxSource) bad(`Source is too long (the limit is ${QUESTION_CSV.maxSource} characters).`);
+    if (source.length > QUESTION_CSV.maxSource)
+      bad(
+        `Source is too long (the limit is ${QUESTION_CSV.maxSource} characters).`,
+      );
 
     if (errors.length > 0 || !mod.ok || difficulty === null) {
-      return { ok: false, row: r.row, line: r.line, errors, module: moduleRef.slice(0, 60), stem: stem.slice(0, 160) };
+      return {
+        ok: false,
+        row: r.row,
+        line: r.line,
+        errors,
+        module: moduleRef.slice(0, 60),
+        stem: stem.slice(0, 160),
+      };
     }
     return {
       ok: true,
       row: r.row,
       line: r.line,
       module: moduleRef.slice(0, 60),
-      draft: { moduleId: mod.entry.id, moduleSlug: mod.entry.slug, stem, options, correctKey: correct, explanation, difficulty, source },
+      draft: {
+        moduleId: mod.entry.id,
+        moduleSlug: mod.entry.slug,
+        stem,
+        options,
+        correctKey: correct,
+        explanation,
+        difficulty,
+        source,
+      },
     };
   });
   return { fileErrors: [], fileWarnings, rows };
@@ -357,27 +511,81 @@ export function parseQuestionCsv(text: string, index: ModuleIndex): QuestionCsvP
 // -------------------------------------------------------------- duplicates
 
 export type AnalysedRow =
-  | { status: "ok"; row: number; line: number; module: string; draft: QuestionDraft }
-  | { status: "duplicate"; row: number; line: number; module: string; draft: QuestionDraft; of: "bank" | { row: number } }
-  | { status: "error"; row: number; line: number; module: string; stem: string; errors: string[] };
+  | {
+      status: "ok";
+      row: number;
+      line: number;
+      module: string;
+      draft: QuestionDraft;
+    }
+  | {
+      status: "duplicate";
+      row: number;
+      line: number;
+      module: string;
+      draft: QuestionDraft;
+      of: "bank" | { row: number };
+    }
+  | {
+      status: "error";
+      row: number;
+      line: number;
+      module: string;
+      stem: string;
+      errors: string[];
+    };
 
 /** Key identifying a question within a module, for duplicate detection. */
-export const duplicateKey = (moduleId: string, stem: string) => `${moduleId}\u0000${stemKey(stem)}`;
+export const duplicateKey = (moduleId: string, stem: string) =>
+  `${moduleId}\u0000${stemKey(stem)}`;
 
 /**
  * Flag rows whose stem already exists in the same module (in the bank, or earlier in this file).
  * `existing` holds `duplicateKey(...)` values for the bank. Invalid rows never claim a stem.
  */
-export function markDuplicates(rows: ParsedRow[], existing: ReadonlySet<string>): AnalysedRow[] {
+export function markDuplicates(
+  rows: ParsedRow[],
+  existing: ReadonlySet<string>,
+): AnalysedRow[] {
   const firstSeen = new Map<string, number>();
   return rows.map((r): AnalysedRow => {
-    if (!r.ok) return { status: "error", row: r.row, line: r.line, module: r.module, stem: r.stem, errors: r.errors };
+    if (!r.ok)
+      return {
+        status: "error",
+        row: r.row,
+        line: r.line,
+        module: r.module,
+        stem: r.stem,
+        errors: r.errors,
+      };
     const key = duplicateKey(r.draft.moduleId, r.draft.stem);
-    if (existing.has(key)) return { status: "duplicate", row: r.row, line: r.line, module: r.module, draft: r.draft, of: "bank" };
+    if (existing.has(key))
+      return {
+        status: "duplicate",
+        row: r.row,
+        line: r.line,
+        module: r.module,
+        draft: r.draft,
+        of: "bank",
+      };
     const first = firstSeen.get(key);
-    if (first !== undefined) return { status: "duplicate", row: r.row, line: r.line, module: r.module, draft: r.draft, of: { row: first } };
+    if (first !== undefined)
+      return {
+        status: "duplicate",
+        row: r.row,
+        line: r.line,
+        module: r.module,
+        draft: r.draft,
+        of: { row: first },
+      };
     firstSeen.set(key, r.row);
-    return { status: "ok", row: r.row, line: r.line, module: r.module, draft: r.draft };
+    return {
+      status: "ok",
+      row: r.row,
+      line: r.line,
+      module: r.module,
+      draft: r.draft,
+    };
   });
 }
 

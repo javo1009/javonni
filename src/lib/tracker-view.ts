@@ -1,7 +1,7 @@
 // Pure view logic for the student tracker screens: filtering, optimistic patches, form validation,
 // chart geometry and small wording helpers. No React, no server code, so it is unit-tested directly.
 
-import { diffDays, isValidDate, type ISODate } from "@/domain/dates";
+import { addDays, diffDays, isValidDate, type ISODate } from "@/domain/dates";
 import { TRACKER, chapterStatus } from "@/domain/tracker";
 import type { ChapterPatch, ChapterView, TopicView, TrackerSnapshot } from "@/services/tracker";
 import { formatShortDate } from "./format";
@@ -284,7 +284,7 @@ export function forecastSummary(
   const needed = chaptersLeft > 0 ? Math.round((chaptersLeft / weeksToFirstPassEnd) * 10) / 10 : 0;
   const neededPerWeek = today > roadmap.firstPassEnd ? Math.round((chaptersLeft / Math.max(1, diffDays(today, examDate) / 7)) * 10) / 10 : needed;
   if (f.verdict === "done") return { tone: "good", headline: "Every chapter read", detail: "Spend the rest of your time on practice, review and mocks.", neededPerWeek: 0 };
-  if (f.verdict === "unknown")
+  if (!("finish" in f))
     return {
       tone: "neutral",
       headline: "Forecast starts once you tick chapters",
@@ -307,4 +307,49 @@ export function forecastSummary(
     detail: `${lately}You'd need about ${fmtHours(neededPerWeek)} chapters a week to finish the first pass by ${formatShortDate(roadmap.firstPassEnd)}.`,
     neededPerWeek,
   };
+}
+
+// ------------------------------------------------------------ study insights
+export type UpcomingReview = { moduleId: string; title: string; topicId: string; kind: "first-review" | "refresh"; due: ISODate; inDays: number };
+
+/** Chapters that will come due for review in the next `days` days (tomorrow onwards), soonest first. */
+export function upcomingReviews(chapters: Pick<ChapterView, "id" | "title" | "topicId" | "number" | "state" | "reviewDue">[], today: ISODate, days = 7): UpcomingReview[] {
+  const out: UpcomingReview[] = [];
+  for (const c of chapters) {
+    if (c.reviewDue || !c.state.read) continue;
+    let due: ISODate | null = null;
+    let kind: UpcomingReview["kind"] = "first-review";
+    if (!c.state.review && c.state.readOn) due = addDays(c.state.readOn, TRACKER.firstReviewDays);
+    else if (c.state.review && c.state.reviewedOn) {
+      due = addDays(c.state.reviewedOn, TRACKER.refreshDays);
+      kind = "refresh";
+    }
+    if (!due) continue;
+    const inDays = diffDays(today, due);
+    if (inDays >= 1 && inDays <= days) out.push({ moduleId: c.id, title: c.title, topicId: c.topicId, kind, due, inDays });
+  }
+  return out.sort((a, b) => a.inDays - b.inDays || a.title.localeCompare(b.title));
+}
+
+/** The topic with the most exam weight still unread: where reading next moves weighted coverage most. */
+export function biggestWeightGap(
+  topics: Pick<TopicView, "id" | "name" | "weightMin" | "weightMax" | "weightLabel">[],
+  counts: Map<string, TopicCounts>,
+): { topic: (typeof topics)[number]; read: number; total: number; unreadWeight: number } | null {
+  let best: ReturnType<typeof biggestWeightGap> = null;
+  for (const t of topics) {
+    const c = counts.get(t.id);
+    if (!c || c.total === 0 || c.read >= c.total) continue;
+    const unreadWeight = ((t.weightMin + t.weightMax) / 2) * (1 - c.read / c.total);
+    if (!best || unreadWeight > best.unreadWeight) best = { topic: t, read: c.read, total: c.total, unreadWeight };
+  }
+  return best;
+}
+
+/** Weakest chapters first: recorded practice score below the weak threshold, lowest score first. */
+export function weakChapters<T extends Pick<ChapterView, "state" | "title">>(chapters: T[], limit = 5): T[] {
+  return chapters
+    .filter((c) => c.state.accuracy !== null && c.state.accuracy < TRACKER.weakScore)
+    .sort((a, b) => (a.state.accuracy as number) - (b.state.accuracy as number) || a.title.localeCompare(b.title))
+    .slice(0, limit);
 }

@@ -8,13 +8,19 @@ const NO_STORE = { "Cache-Control": "private, no-store" };
 export async function GET() {
   await connection();
   const user = await getCurrentUser();
-  if (!user) return new Response("Sign in to download the template.", { status: 401, headers: NO_STORE });
-  if (user.role !== "admin") return new Response("Not found", { status: 404, headers: NO_STORE });
+  if (!user)
+    return new Response("Sign in to download the template.", {
+      status: 401,
+      headers: NO_STORE,
+    });
+  if (user.role !== "admin")
+    return new Response("Not found", { status: 404, headers: NO_STORE });
   return new Response(questionTemplateCsv(), {
     headers: {
       ...NO_STORE,
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": 'attachment; filename="ascent-question-template.csv"',
+      "Content-Disposition":
+        'attachment; filename="ascent-question-template.csv"',
       "X-Content-Type-Options": "nosniff",
     },
   });

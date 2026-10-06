@@ -12,7 +12,10 @@ export default function Loading() {
       </div>
       <div className="grid grid-cols-1 gap-3.5 min-[460px]:grid-cols-2 xl:grid-cols-4">
         {Array.from({ length: 4 }, (_, i) => (
-          <div key={i} className="h-[9.5rem] rounded-[var(--radius-card)] border border-border bg-surface p-5 max-sm:h-28">
+          <div
+            key={i}
+            className="h-[9.5rem] rounded-[var(--radius-card)] border border-border bg-surface p-5 max-sm:h-28"
+          >
             <div className={`${bar} h-3 w-24`} />
             <div className={`${bar} mt-4 h-9 w-20`} />
           </div>

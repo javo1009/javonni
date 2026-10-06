@@ -44,7 +44,11 @@ export function PasswordField({
       htmlFor={id}
       hint={
         <span id={`${id}-count`}>
-          {value.length === 0 ? `At least ${MIN_PASSWORD} characters. Generate one, or type your own.` : ok ? `${value.length} characters. Long enough.` : `${value.length} of ${MIN_PASSWORD} characters. Needs ${MIN_PASSWORD - value.length} more.`}
+          {value.length === 0
+            ? `At least ${MIN_PASSWORD} characters. Generate one, or type your own.`
+            : ok
+              ? `${value.length} characters. Long enough.`
+              : `${value.length} of ${MIN_PASSWORD} characters. Needs ${MIN_PASSWORD - value.length} more.`}
         </span>
       }
     >
@@ -72,7 +76,11 @@ export function PasswordField({
           aria-label={shown ? "Hide password" : "Show password"}
           className={buttonClass("secondary", "md", "size-11 shrink-0 px-0")}
         >
-          {shown ? <EyeOff aria-hidden className="size-4" /> : <Eye aria-hidden className="size-4" />}
+          {shown ? (
+            <EyeOff aria-hidden className="size-4" />
+          ) : (
+            <Eye aria-hidden className="size-4" />
+          )}
         </button>
         <button
           type="button"
@@ -80,11 +88,15 @@ export function PasswordField({
             onChange(generatePassword());
             setShown(true);
           }}
-          className={buttonClass("secondary", "md", "h-11 shrink-0")}
+          aria-label="Generate a password"
+          className={buttonClass(
+            "secondary",
+            "md",
+            "h-11 shrink-0 max-sm:size-11 max-sm:px-0",
+          )}
         >
           <Wand2 aria-hidden className="size-4" />
-          <span className="max-sm:sr-only">Generate</span>
-          <span className="sm:sr-only"> password</span>
+          <span className="max-sm:hidden">Generate</span>
         </button>
       </div>
     </Field>

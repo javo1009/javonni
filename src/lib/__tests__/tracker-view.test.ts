@@ -4,6 +4,7 @@ import { EMPTY_CHAPTER, chapterStatus, type ChapterState } from "@/domain/tracke
 import {
   NO_FILTER,
   applyChapterPatch,
+  biggestWeightGap,
   chapterCounts,
   filterToQuery,
   forecastSummary,
@@ -23,6 +24,8 @@ import {
   validateMock,
   validateSession,
   validateSettings,
+  upcomingReviews,
+  weakChapters,
 } from "../tracker-view";
 
 const chapter = (over: Partial<ChapterState> = {}, extra: Partial<ChapterView> = {}): ChapterView => {
@@ -270,5 +273,49 @@ describe("wording", () => {
     const r = forecastSummary(pace({ finish: "2027-02-10", verdict: "late" }, 2), roadmap, 14, "2027-01-20", "2027-02-18");
     expect(r.neededPerWeek).toBeGreaterThan(0);
     expect(r.neededPerWeek).toBeLessThanOrEqual(14);
+  });
+});
+
+describe("study insights", () => {
+  const today = "2026-10-06";
+  it("lists reviews coming due in the next week, not the ones already due", () => {
+    const list = [
+      chapter({ read: true, readOn: "2026-10-04" }, { id: "a", title: "A" }), // first review due 10-07
+      chapter({ read: true, readOn: "2026-10-01" }, { id: "b", title: "B", reviewDue: { kind: "first-review", overdueDays: 2 } }), // already due
+      chapter({ read: true, review: true, readOn: "2026-09-01", reviewedOn: "2026-09-25" }, { id: "c", title: "C" }), // refresh due 10-16
+      chapter({ read: true, review: true, readOn: "2026-09-20", reviewedOn: "2026-09-24" }, { id: "d", title: "D" }), // refresh 10-15
+      chapter({ read: true }, { id: "e", title: "E" }), // unknown read date
+      chapter({}, { id: "f", title: "F" }), // not read
+      chapter({ read: true, readOn: "2026-10-06" }, { id: "g", title: "G" }), // due 10-09
+    ];
+    const up = upcomingReviews(list, today, 7);
+    expect(up.map((u) => u.moduleId)).toEqual(["a", "g"]);
+    expect(up[0]).toMatchObject({ kind: "first-review", due: "2026-10-07", inDays: 1 });
+    expect(upcomingReviews(list, today, 9).map((u) => u.moduleId)).toEqual(["a", "g", "d"]);
+    expect(upcomingReviews(list, today, 10).map((u) => u.moduleId)).toEqual(["a", "g", "d", "c"]);
+  });
+
+  it("finds the heaviest unread topic", () => {
+    const topics = [
+      { id: "t1", name: "Light", weightMin: 6, weightMax: 9, weightLabel: "6–9%" },
+      { id: "t2", name: "Heavy", weightMin: 11, weightMax: 14, weightLabel: "11–14%" },
+      { id: "t3", name: "Done", weightMin: 10, weightMax: 15, weightLabel: "10–15%" },
+    ];
+    const counts = new Map([
+      ["t1", { total: 8, read: 0, complete: 0 }],
+      ["t2", { total: 12, read: 6, complete: 0 }],
+      ["t3", { total: 6, read: 6, complete: 6 }],
+    ]);
+    const gap = biggestWeightGap(topics, counts);
+    expect(gap?.topic.id).toBe("t1"); // 7.5 unread weight beats 6.25
+    counts.set("t1", { total: 8, read: 6, complete: 0 });
+    expect(biggestWeightGap(topics, counts)?.topic.id).toBe("t2");
+    expect(biggestWeightGap(topics, new Map())).toBeNull();
+  });
+
+  it("weakChapters sorts lowest score first and ignores unscored", () => {
+    const list = [chapter({ accuracy: 65 }, { title: "B" }), chapter({ accuracy: 40 }, { title: "A" }), chapter({}, { title: "C" }), chapter({ accuracy: 90 }, { title: "D" })];
+    expect(weakChapters(list).map((c) => c.title)).toEqual(["A", "B"]);
+    expect(weakChapters(list, 1)).toHaveLength(1);
   });
 });

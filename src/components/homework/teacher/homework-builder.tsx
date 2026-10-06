@@ -12,7 +12,7 @@ import type { ClassOption, TopicOption } from "./builder-types";
 import { DropZone, FileRow, Spinner, type UploadStatus } from "./file-drop";
 import { fileProblem, formatBytes, MAX_HANDOUTS } from "./file-rules";
 import { QuestionPicker } from "./question-picker";
-import { relativeTime } from "./time";
+import { formatWhen, relativeTime } from "./time";
 
 type Item = { key: string; kind: "file" | "text"; prompt: string; points: string };
 type Queued = { key: string; file: File; status: UploadStatus; error: string | null };
@@ -664,7 +664,7 @@ export function HomeworkBuilder({
               <Row label="Due">
                 {dueValid ? (
                   <>
-                    {new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(due)}
+                    {formatWhen(due)}
                     <span className="block text-ink-2" suppressHydrationWarning>
                       {relativeTime(due)}
                     </span>

@@ -1,6 +1,18 @@
-import { Download, File, FileSpreadsheet, FileText, Image as ImageIcon, Presentation } from "lucide-react";
+import {
+  Download,
+  File,
+  FileSpreadsheet,
+  FileText,
+  Image as ImageIcon,
+  Presentation,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
-import { formatBytes, iconKindOf, typeLabelOf, type FileIconKind } from "./file-rules";
+import {
+  formatBytes,
+  iconKindOf,
+  typeLabelOf,
+  type FileIconKind,
+} from "./file-rules";
 
 const ICONS: Record<FileIconKind, typeof File> = {
   pdf: FileText,
@@ -12,10 +24,22 @@ const ICONS: Record<FileIconKind, typeof File> = {
   other: File,
 };
 
-export function FileTypeIcon({ name, className }: { name: string; className?: string }) {
+export function FileTypeIcon({
+  name,
+  className,
+}: {
+  name: string;
+  className?: string;
+}) {
   const Icon = ICONS[iconKindOf(name)];
   return (
-    <span aria-hidden className={cn("grid size-10 shrink-0 place-items-center rounded-[10px] bg-brand-soft text-brand", className)}>
+    <span
+      aria-hidden
+      className={cn(
+        "grid size-10 shrink-0 place-items-center rounded-[10px] bg-brand-soft text-brand",
+        className,
+      )}
+    >
       <Icon className="size-5" />
     </span>
   );
@@ -26,7 +50,13 @@ export type FileLike = { id: string; name: string; size: number };
 export const fileHref = (id: string) => `/api/files/${id}`;
 
 /** Download links for files (handouts, the student's own uploads, feedback). Plain anchors: the route sends an attachment. */
-export function FileLinks({ files, label }: { files: FileLike[]; label: string }) {
+export function FileLinks({
+  files,
+  label,
+}: {
+  files: FileLike[];
+  label: string;
+}) {
   return (
     <ul aria-label={label} className="grid gap-2 sm:grid-cols-2">
       {files.map((f) => (
@@ -37,7 +67,10 @@ export function FileLinks({ files, label }: { files: FileLike[]; label: string }
           >
             <FileTypeIcon name={f.name} />
             <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium text-ink group-hover:underline" title={f.name}>
+              <span
+                className="block truncate font-medium text-ink group-hover:underline"
+                title={f.name}
+              >
                 {f.name}
               </span>
               <span className="block text-xs text-ink-2">

@@ -21,9 +21,16 @@ function span(ms: number): string {
 }
 
 /** "due in 2 days" / "overdue by 3 hours" (relative to `now`). */
-export function describeDue(dueAt: Date | number | string, now: Date | number | string): DueInfo {
+export function describeDue(
+  dueAt: Date | number | string,
+  now: Date | number | string,
+): DueInfo {
   const diff = new Date(dueAt).getTime() - new Date(now).getTime();
-  if (diff >= 0) return { overdue: false, label: diff < MIN ? "due now" : `due in ${span(diff)}` };
+  if (diff >= 0)
+    return {
+      overdue: false,
+      label: diff < MIN ? "due now" : `due in ${span(diff)}`,
+    };
   return { overdue: true, label: `overdue by ${span(-diff)}` };
 }
 
@@ -35,8 +42,18 @@ export function formatDue(d: Date | number | string, timeZone = "UTC"): string {
   } catch {
     tz = "UTC";
   }
-  const date = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: tz }).format(new Date(d));
-  const time = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz }).format(new Date(d));
+  const date = new Intl.DateTimeFormat("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    timeZone: tz,
+  }).format(new Date(d));
+  const time = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: tz,
+  }).format(new Date(d));
   return `${date}, ${time}`;
 }
 

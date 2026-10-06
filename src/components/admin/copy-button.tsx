@@ -18,12 +18,25 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
   }
   return (
     <>
-      <button type="button" onClick={copy} className={buttonClass("secondary", "sm")} aria-label={label}>
-        {state === "copied" ? <Check aria-hidden className="size-4" /> : <Copy aria-hidden className="size-4" />}
+      <button
+        type="button"
+        onClick={copy}
+        className={buttonClass("secondary", "sm")}
+        aria-label={label}
+      >
+        {state === "copied" ? (
+          <Check aria-hidden className="size-4" />
+        ) : (
+          <Copy aria-hidden className="size-4" />
+        )}
         {state === "copied" ? "Copied" : "Copy"}
       </button>
       <span role="status" className="sr-only">
-        {state === "copied" ? "Copied to clipboard" : state === "failed" ? "Couldn't copy. Select the text and copy it manually." : ""}
+        {state === "copied"
+          ? "Copied to clipboard"
+          : state === "failed"
+            ? "Couldn't copy. Select the text and copy it manually."
+            : ""}
       </span>
     </>
   );

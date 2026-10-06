@@ -35,7 +35,14 @@ export function extensionOf(name: string): string {
   return dot > 0 ? base.slice(dot + 1).toLowerCase() : "";
 }
 
-export type FileIconKind = "pdf" | "doc" | "sheet" | "slides" | "image" | "text" | "other";
+export type FileIconKind =
+  | "pdf"
+  | "doc"
+  | "sheet"
+  | "slides"
+  | "image"
+  | "text"
+  | "other";
 
 export function iconKindOf(name: string): FileIconKind {
   switch (extensionOf(name)) {
@@ -69,19 +76,28 @@ export function typeLabelOf(name: string): string {
 /** 1536 -> "1.5 KB" */
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${Math.round((n / 1024) * 10) / 10} KB`.replace(".0 KB", " KB");
-  return `${Math.round((n / 1024 / 1024) * 10) / 10} MB`.replace(".0 MB", " MB");
+  if (n < 1024 * 1024)
+    return `${Math.round((n / 1024) * 10) / 10} KB`.replace(".0 KB", " KB");
+  // Round up so a file just over the limit never reads as exactly the limit.
+  return `${Math.ceil((n / 1024 / 1024) * 10) / 10} MB`.replace(".0 MB", " MB");
 }
 
-export const ALLOWED_TYPES_TEXT = "PDF, Word, Excel, PowerPoint, CSV, text or image";
+export const ALLOWED_TYPES_TEXT =
+  "PDF, Word, Excel, PowerPoint, CSV, text or image";
 export const maxSizeText = () => `${FILE_RULES.maxBytes / 1024 / 1024} MB`;
 
 /** A message if the file can't be uploaded, else null. `already` = files this item already holds (incl. queued). */
-export function validateClientFile(file: { name: string; size: number }, already = 0): string | null {
+export function validateClientFile(
+  file: { name: string; size: number },
+  already = 0,
+): string | null {
   const ext = extensionOf(file.name);
-  if (!file.name || !FILE_TYPE_LABELS[ext]) return `“${file.name || "That file"}” isn't an allowed type. Use ${ALLOWED_TYPES_TEXT} files.`;
+  if (!file.name || !FILE_TYPE_LABELS[ext])
+    return `“${file.name || "That file"}” isn't an allowed type. Use ${ALLOWED_TYPES_TEXT} files.`;
   if (file.size === 0) return `“${file.name}” is empty.`;
-  if (file.size > FILE_RULES.maxBytes) return `“${file.name}” is ${formatBytes(file.size)}. Files can be at most ${maxSizeText()}.`;
-  if (already >= FILE_RULES.perItem) return `You can upload at most ${FILE_RULES.perItem} files here. Remove one to add “${file.name}”.`;
+  if (file.size > FILE_RULES.maxBytes)
+    return `“${file.name}” is ${formatBytes(file.size)}. Files can be at most ${maxSizeText()}.`;
+  if (already >= FILE_RULES.perItem)
+    return `You can upload at most ${FILE_RULES.perItem} files here. Remove one to add “${file.name}”.`;
   return null;
 }

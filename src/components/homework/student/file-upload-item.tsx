@@ -1,16 +1,39 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { LoaderCircle, RotateCcw, Trash2, TriangleAlert, Upload, X } from "lucide-react";
-import { uploadSubmissionFile, deleteSubmissionFile } from "@/app/actions/student";
+import {
+  LoaderCircle,
+  RotateCcw,
+  Trash2,
+  TriangleAlert,
+  Upload,
+  X,
+} from "lucide-react";
+import {
+  uploadSubmissionFile,
+  deleteSubmissionFile,
+} from "@/app/actions/student";
 import { Button, buttonClass } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { ACCEPT_ATTR, ALLOWED_TYPES_TEXT, FILE_RULES, formatBytes, maxSizeText, typeLabelOf, validateClientFile } from "./file-rules";
+import {
+  ACCEPT_ATTR,
+  ALLOWED_TYPES_TEXT,
+  FILE_RULES,
+  formatBytes,
+  maxSizeText,
+  typeLabelOf,
+  validateClientFile,
+} from "./file-rules";
 import { FileTypeIcon, fileHref } from "./file-links";
 
 export type UploadedFile = { id: string; name: string; size: number };
 
-type QueueEntry = { key: string; file: File; status: "waiting" | "uploading" | "error"; error?: string };
+type QueueEntry = {
+  key: string;
+  file: File;
+  status: "waiting" | "uploading" | "error";
+  error?: string;
+};
 
 let seq = 0;
 const nextKey = () => `u${++seq}`;
@@ -70,7 +93,8 @@ export function FileUploadItem({
     [itemId, onBusyChange],
   );
 
-  const patch = (key: string, p: Partial<QueueEntry>) => setQueue((q) => q.map((e) => (e.key === key ? { ...e, ...p } : e)));
+  const patch = (key: string, p: Partial<QueueEntry>) =>
+    setQueue((q) => q.map((e) => (e.key === key ? { ...e, ...p } : e)));
 
   async function upload(entry: QueueEntry) {
     patch(entry.key, { status: "uploading", error: undefined });
@@ -82,7 +106,10 @@ export function FileUploadItem({
     try {
       res = await uploadSubmissionFile(fd);
     } catch {
-      res = { ok: false, error: "Couldn't upload. Check your connection and try again." };
+      res = {
+        ok: false,
+        error: "Couldn't upload. Check your connection and try again.",
+      };
     }
     if (res.ok) {
       onAdded({ id: res.data.id, name: res.data.name, size: res.data.size });
@@ -112,7 +139,11 @@ export function FileUploadItem({
     }
     heldRef.current = held;
     setQueue((q) => [...q, ...entries]);
-    setAnnounce(entries.some((e) => e.status === "waiting") ? `Uploading ${entries.filter((e) => e.status === "waiting").length} ${entries.filter((e) => e.status === "waiting").length === 1 ? "file" : "files"}.` : "");
+    setAnnounce(
+      entries.some((e) => e.status === "waiting")
+        ? `Uploading ${entries.filter((e) => e.status === "waiting").length} ${entries.filter((e) => e.status === "waiting").length === 1 ? "file" : "files"}.`
+        : "",
+    );
     for (const e of entries) if (e.status === "waiting") enqueue(e);
   }
 
@@ -164,15 +195,29 @@ export function FileUploadItem({
         }}
         data-testid="dropzone"
         className={cn(
-          "flex flex-col items-center gap-3 rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors",
-          disabled ? "border-border bg-surface-2 opacity-70" : dragging ? "border-brand bg-brand-soft" : "border-border-strong bg-surface-2/60",
+          "relative flex flex-col items-center gap-3 rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors",
+          disabled
+            ? "border-border bg-surface-2 opacity-70"
+            : dragging
+              ? "border-brand bg-brand-soft"
+              : "border-border-strong bg-surface-2/60",
         )}
       >
-        <Upload aria-hidden className={cn("size-7", dragging ? "text-brand" : "text-ink-2")} />
+        <Upload
+          aria-hidden
+          className={cn("size-7", dragging ? "text-brand" : "text-ink-2")}
+        />
         <div>
-          <p className="font-medium text-ink">{disabled ? (disabledReason ?? "Uploads are closed") : dragging ? "Drop to upload" : "Drag your completed files here"}</p>
+          <p className="font-medium text-ink">
+            {disabled
+              ? (disabledReason ?? "Uploads are closed")
+              : dragging
+                ? "Drop to upload"
+                : "Drag your completed files here"}
+          </p>
           <p className="mt-0.5 text-sm text-ink-2">
-            {ALLOWED_TYPES_TEXT}. Up to {maxSizeText()} each, {FILE_RULES.perItem} files at most.
+            {ALLOWED_TYPES_TEXT}. Up to {maxSizeText()} each,{" "}
+            {FILE_RULES.perItem} files at most.
           </p>
         </div>
         <input
@@ -191,7 +236,11 @@ export function FileUploadItem({
         <label
           htmlFor={inputId}
           className={cn(
-            buttonClass("secondary", "md", "cursor-pointer max-sm:min-w-44 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[var(--focus)]"),
+            buttonClass(
+              "secondary",
+              "md",
+              "cursor-pointer max-sm:min-w-44 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[var(--focus)]",
+            ),
             (disabled || full) && "pointer-events-none opacity-50",
           )}
         >
@@ -207,10 +256,17 @@ export function FileUploadItem({
       {(files.length > 0 || queue.length > 0) && (
         <ul aria-label="Your uploaded files" className="space-y-2">
           {files.map((f) => (
-            <li key={f.id} className="flex items-center gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2">
+            <li
+              key={f.id}
+              className="flex items-center gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2"
+            >
               <FileTypeIcon name={f.name} />
               <div className="min-w-0 flex-1">
-                <a href={fileHref(f.id)} className="block truncate font-medium text-ink hover:underline" title={`Download ${f.name}`}>
+                <a
+                  href={fileHref(f.id)}
+                  className="block truncate font-medium text-ink hover:underline"
+                  title={`Download ${f.name}`}
+                >
                   {f.name}
                 </a>
                 <p className="text-xs text-ink-2">
@@ -226,8 +282,17 @@ export function FileUploadItem({
                   aria-label={`Remove ${f.name}`}
                   className="max-sm:min-w-11"
                 >
-                  {removing.has(f.id) ? <LoaderCircle aria-hidden className="size-4 animate-spin motion-reduce:animate-none" /> : <Trash2 aria-hidden className="size-4" />}
-                  <span className="max-sm:sr-only">{removing.has(f.id) ? "Removing…" : "Remove"}</span>
+                  {removing.has(f.id) ? (
+                    <LoaderCircle
+                      aria-hidden
+                      className="size-4 animate-spin motion-reduce:animate-none"
+                    />
+                  ) : (
+                    <Trash2 aria-hidden className="size-4" />
+                  )}
+                  <span className="max-sm:sr-only">
+                    {removing.has(f.id) ? "Removing…" : "Remove"}
+                  </span>
                 </Button>
               )}
             </li>
@@ -235,34 +300,70 @@ export function FileUploadItem({
           {queue.map((q) => (
             <li
               key={q.key}
-              className={cn("flex items-center gap-3 rounded-xl border px-3 py-2", q.status === "error" ? "border-risk/50 bg-risk-soft" : "border-border bg-surface-2")}
+              className={cn(
+                "flex items-center gap-3 rounded-xl border px-3 py-2",
+                q.status === "error"
+                  ? "border-risk/50 bg-risk-soft"
+                  : "border-border bg-surface-2",
+              )}
             >
               <FileTypeIcon name={q.file.name} />
               <div className="min-w-0 flex-1">
-                <p className="truncate font-medium text-ink" title={q.file.name}>
+                <p
+                  className="truncate font-medium text-ink"
+                  title={q.file.name}
+                >
                   {q.file.name}
                 </p>
                 {q.status === "error" ? (
-                  <p role="alert" className="flex items-start gap-1.5 text-sm text-risk">
-                    <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
+                  <p
+                    role="alert"
+                    className="flex items-start gap-1.5 text-sm text-risk"
+                  >
+                    <TriangleAlert
+                      aria-hidden
+                      className="mt-0.5 size-4 shrink-0"
+                    />
                     <span>{q.error}</span>
                   </p>
                 ) : (
                   <p className="flex items-center gap-1.5 text-xs text-ink-2">
-                    <LoaderCircle aria-hidden className={cn("size-3.5", q.status === "uploading" && "animate-spin motion-reduce:animate-none")} />
-                    {q.status === "uploading" ? "Uploading…" : "Waiting to upload…"} · {formatBytes(q.file.size)}
+                    <LoaderCircle
+                      aria-hidden
+                      className={cn(
+                        "size-3.5",
+                        q.status === "uploading" &&
+                          "animate-spin motion-reduce:animate-none",
+                      )}
+                    />
+                    {q.status === "uploading"
+                      ? "Uploading…"
+                      : "Waiting to upload…"}{" "}
+                    · {formatBytes(q.file.size)}
                   </p>
                 )}
               </div>
               {q.status === "error" && (
                 <div className="flex shrink-0 gap-1">
                   {!validateClientFile(q.file, 0) && (
-                    <Button variant="ghost" size="sm" onClick={() => enqueue(q)} aria-label={`Retry uploading ${q.file.name}`}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => enqueue(q)}
+                      aria-label={`Retry uploading ${q.file.name}`}
+                    >
                       <RotateCcw aria-hidden className="size-4" />
                       <span className="max-sm:sr-only">Retry</span>
                     </Button>
                   )}
-                  <Button variant="ghost" size="sm" onClick={() => setQueue((all) => all.filter((e) => e.key !== q.key))} aria-label={`Dismiss message about ${q.file.name}`}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      setQueue((all) => all.filter((e) => e.key !== q.key))
+                    }
+                    aria-label={`Dismiss message about ${q.file.name}`}
+                  >
                     <X aria-hidden className="size-4" />
                     <span className="max-sm:sr-only">Dismiss</span>
                   </Button>
@@ -273,7 +374,10 @@ export function FileUploadItem({
         </ul>
       )}
       {removeError && (
-        <p role="alert" className="rounded-lg bg-risk-soft px-3 py-2 text-sm text-risk">
+        <p
+          role="alert"
+          className="rounded-lg bg-risk-soft px-3 py-2 text-sm text-risk"
+        >
           {removeError}
         </p>
       )}

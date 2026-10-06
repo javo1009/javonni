@@ -10,7 +10,11 @@ const NO_STORE = { "Cache-Control": "private, no-store" };
 export async function GET() {
   await connection();
   const user = await getCurrentUser();
-  if (!user) return new Response("Sign in to export the question bank.", { status: 401, headers: NO_STORE });
+  if (!user)
+    return new Response("Sign in to export the question bank.", {
+      status: 401,
+      headers: NO_STORE,
+    });
   try {
     const csv = await exportQuestionBank(getDb(), toActor(user));
     const stamp = new Date().toISOString().slice(0, 10);
@@ -23,8 +27,15 @@ export async function GET() {
       },
     });
   } catch (e) {
-    if (e instanceof ForbiddenError) return new Response("Not found", { status: 404, headers: NO_STORE });
-    console.error("[admin] question export failed:", e instanceof Error ? e.message : "unknown error");
-    return new Response("Something went wrong.", { status: 500, headers: NO_STORE });
+    if (e instanceof ForbiddenError)
+      return new Response("Not found", { status: 404, headers: NO_STORE });
+    console.error(
+      "[admin] question export failed:",
+      e instanceof Error ? e.message : "unknown error",
+    );
+    return new Response("Something went wrong.", {
+      status: 500,
+      headers: NO_STORE,
+    });
   }
 }

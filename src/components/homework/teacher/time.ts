@@ -15,9 +15,11 @@ export function relativeTime(target: Date | string, now: Date | number = new Dat
   return rtf.format(Math.round(diff / (30 * 24 * 60 * min)), "month");
 }
 
-/** "Tue 13 Oct, 17:00" in the given time zone. */
-export function formatWhen(d: Date | string, timeZone = "UTC"): string {
-  return new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone }).format(new Date(d));
+/** "Tue 13 Oct, 17:00" in the given time zone (device zone if omitted). Built from parts so server and browser ICU agree. */
+export function formatWhen(d: Date | string, timeZone?: string): string {
+  const parts = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).formatToParts(new Date(d));
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${get("weekday")} ${get("day")} ${get("month")}, ${get("hour")}:${get("minute")}`;
 }
 
 export type HomeworkPhase = "draft" | "open" | "closed";
