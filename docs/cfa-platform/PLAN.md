@@ -1,5 +1,7 @@
 # Ascent — CFA® Level I Prep & Tracking Platform
 
+> **Note:** the product was rebuilt around a module-level study tracker (102 official modules, hours, mocks, file-based homework). Where this plan talks about learning-outcome (LOS) tracking, generated daily plans or mastery levels, [`TRACKER-CONCEPT.md`](TRACKER-CONCEPT.md) is the current design.
+
 **Product & technical plan · draft v0.1 · 2026-10-06**
 Working title "Ascent" is a placeholder. Don't put "CFA" in the product or domain name until trademark rules are checked (see §7.4).
 Companion doc: [`UX-DESIGN.md`](./UX-DESIGN.md) (design system, screens, wireframes).

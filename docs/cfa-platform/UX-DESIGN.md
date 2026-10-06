@@ -1,5 +1,7 @@
 # Ascent — UX & UI Design Spec
 
+> **Note:** the visual design and navigation were replaced by the dark navy/cyan top-tab design of the sample study tracker. See [`TRACKER-CONCEPT.md`](TRACKER-CONCEPT.md). The accessibility and interaction principles here still apply.
+
 **Draft v0.1 · 2026-10-06** · Companion to [`PLAN.md`](./PLAN.md)
 
 Scope: experience principles, information architecture, design system, signature visuals, key screens with wireframes, interaction patterns, accessibility, and how we'll validate the design. Visual values are a starting point to be tested with real users (§8), not a final brand.
