@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { databaseLikeEnvNames, findDatabaseUrl, findDirectDatabaseUrl } from "../env";
+import { databaseLikeEnvNames, findDatabaseUrl, findDirectDatabaseUrl, toDriverUrl } from "../env";
 
 const PG = "postgresql://u:p@host/db?sslmode=require";
 const PG_DIRECT = "postgresql://u:p@direct-host/db?sslmode=require";
@@ -29,5 +29,14 @@ describe("database env discovery", () => {
 
   it("lists database-looking names without values", () => {
     expect(databaseLikeEnvNames({ PGHOST: "h", NEON_PROJECT_ID: "x", SESSION_SECRET: "s" })).toEqual(["NEON_PROJECT_ID", "PGHOST"]);
+  });
+
+  it("strips client-only parameters (e.g. Neon's channel_binding) but keeps sslmode", () => {
+    const neon = "postgresql://u:p@ep-x-pooler.c-1.us-east-1.aws.neon.tech/neondb?channel_binding=require&sslmode=require";
+    const out = new URL(toDriverUrl(neon));
+    expect(out.searchParams.get("channel_binding")).toBeNull();
+    expect(out.searchParams.get("sslmode")).toBe("require");
+    expect(out.hostname).toBe("ep-x-pooler.c-1.us-east-1.aws.neon.tech");
+    expect(out.password).toBe("p");
   });
 });

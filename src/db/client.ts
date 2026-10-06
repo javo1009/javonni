@@ -1,6 +1,6 @@
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { findDatabaseUrl, findDirectDatabaseUrl } from "./env";
+import { findDatabaseUrl, findDirectDatabaseUrl, toDriverUrl } from "./env";
 import * as schema from "./schema";
 
 export type Db = PostgresJsDatabase<typeof schema>;
@@ -24,7 +24,7 @@ export function getDb(url = databaseUrl()): Db {
     throw new Error("DATABASE_URL is not set. See .env.example and README.md.");
   }
   if (cache.db && cache.url === url) return cache.db;
-  const sql = postgres(url, {
+  const sql = postgres(toDriverUrl(url), {
     prepare: false,
     max: Number(process.env.DB_POOL_MAX ?? (process.env.NODE_ENV === "production" ? 5 : 10)),
     idle_timeout: 20,

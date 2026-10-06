@@ -16,6 +16,22 @@ function pick(env: Env, exact: string[], suffixes: string[]): string | undefined
   return undefined;
 }
 
+// URL parameters that libpq or Prisma understand but postgres.js would forward to
+// the server as session settings, which Postgres rejects ("unrecognized
+// configuration parameter"). Neon's Vercel integration adds channel_binding.
+const CLIENT_ONLY_PARAMS = ["channel_binding", "pgbouncer", "connection_limit", "pool_timeout", "statement_cache_size", "schema"];
+
+/** Make a connection string safe for postgres.js. TLS is still enforced by sslmode. */
+export function toDriverUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    for (const p of CLIENT_ONLY_PARAMS) u.searchParams.delete(p);
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
 /** Pooled URL for the app at runtime. */
 export function findDatabaseUrl(env: Env = process.env): string | undefined {
   return pick(env, ["DATABASE_URL", "POSTGRES_URL"], ["_DATABASE_URL", "_POSTGRES_URL"]);
