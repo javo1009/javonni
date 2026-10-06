@@ -25,7 +25,13 @@ export default async function StudentOverviewPage() {
         eyebrow="YOUR PREPARATION"
         title={overviewHeadline(snapshot)}
         description={`A live view of your hours, chapter coverage and practice. ${snapshot.daysLeft} ${snapshot.daysLeft === 1 ? "day" : "days"} to go.`}
-        actions={<SettingsForm examDate={snapshot.examDate} weeklyTargetHours={snapshot.weeklyTargetHours} today={snapshot.today} />}
+        actions={
+          <SettingsForm
+            examDate={snapshot.examDate}
+            weeklyTargetHours={snapshot.weeklyTargetHours}
+            today={snapshot.today}
+          />
+        }
       />
       <div className="pb-6">
         <OverviewView snapshot={snapshot} />

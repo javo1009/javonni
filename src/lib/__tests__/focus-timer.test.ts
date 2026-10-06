@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { IDLE, TIMER_MIN_MINUTES, formatClock, loggable, minutesToMinimum, parseTimerState, serializeTimerState, timerElapsed, timerPause, timerStart } from "../focus-timer";
+import {
+  IDLE,
+  TIMER_MIN_MINUTES,
+  formatClock,
+  loggable,
+  minutesToMinimum,
+  parseTimerState,
+  serializeTimerState,
+  timerElapsed,
+  timerPause,
+  timerStart,
+} from "../focus-timer";
 
 const MIN = 60_000;
 
@@ -22,7 +33,12 @@ describe("focus timer", () => {
   });
 
   it("never reports negative time if the clock moves backwards", () => {
-    expect(timerElapsed({ status: "running", startedAt: 500, accumulatedMs: 0 }, 100)).toBe(0);
+    expect(
+      timerElapsed(
+        { status: "running", startedAt: 500, accumulatedMs: 0 },
+        100,
+      ),
+    ).toBe(0);
   });
 
   it("applies the 15 minute minimum when logging", () => {
@@ -40,10 +56,27 @@ describe("focus timer", () => {
   });
 
   it("round-trips stored state and rejects garbage", () => {
-    const s = { status: "running" as const, startedAt: 123, accumulatedMs: 456 };
+    const s = {
+      status: "running" as const,
+      startedAt: 123,
+      accumulatedMs: 456,
+    };
     expect(parseTimerState(serializeTimerState(s))).toEqual(s);
-    expect(parseTimerState(serializeTimerState({ status: "paused", accumulatedMs: 9 }))).toEqual({ status: "paused", accumulatedMs: 9 });
-    for (const bad of [null, "", "nope", "null", "{}", '{"status":"running"}', '{"status":"paused","accumulatedMs":-1}', '{"status":"running","startedAt":"x","accumulatedMs":0}'])
+    expect(
+      parseTimerState(
+        serializeTimerState({ status: "paused", accumulatedMs: 9 }),
+      ),
+    ).toEqual({ status: "paused", accumulatedMs: 9 });
+    for (const bad of [
+      null,
+      "",
+      "nope",
+      "null",
+      "{}",
+      '{"status":"running"}',
+      '{"status":"paused","accumulatedMs":-1}',
+      '{"status":"running","startedAt":"x","accumulatedMs":0}',
+    ])
       expect(parseTimerState(bad)).toBe(IDLE);
   });
 });

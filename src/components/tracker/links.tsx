@@ -16,13 +16,23 @@ const PATHS: Record<TrackerTab, string> = {
   mocks: "/student/mocks",
 };
 
-export function tabHref(tab: TrackerTab, filter?: Partial<ChapterFilter>): string {
-  const qs = filter ? filterToQuery({ query: "", topicId: "", status: "all", ...filter }) : "";
+export function tabHref(
+  tab: TrackerTab,
+  filter?: Partial<ChapterFilter>,
+): string {
+  const qs = filter
+    ? filterToQuery({ query: "", topicId: "", status: "all", ...filter })
+    : "";
   return qs ? `${PATHS[tab]}?${qs}` : PATHS[tab];
 }
 
-export const practiceHref = (target: { moduleId?: string; scope?: "weak" | "mixed" }) =>
-  target.moduleId ? `/student/practice?module=${target.moduleId}` : `/student/practice?scope=${target.scope ?? "weak"}`;
+export const practiceHref = (target: {
+  moduleId?: string;
+  scope?: "weak" | "mixed";
+}) =>
+  target.moduleId
+    ? `/student/practice?module=${target.moduleId}`
+    : `/student/practice?scope=${target.scope ?? "weak"}`;
 
 /** A link to another tab: <Link> for the student, a button that switches tabs in read-only mode. */
 export function TabLink({
@@ -42,10 +52,20 @@ export function TabLink({
   children: ReactNode;
   "aria-label"?: string;
 }) {
-  if (!readOnly) return <Link href={tabHref(tab, filter)} className={className} {...rest}>{children}</Link>;
+  if (!readOnly)
+    return (
+      <Link href={tabHref(tab, filter)} className={className} {...rest}>
+        {children}
+      </Link>
+    );
   if (!onTab) return <span className={className}>{children}</span>;
   return (
-    <button type="button" onClick={() => onTab(tab, filter)} className={className} {...rest}>
+    <button
+      type="button"
+      onClick={() => onTab(tab, filter)}
+      className={className}
+      {...rest}
+    >
       {children}
     </button>
   );

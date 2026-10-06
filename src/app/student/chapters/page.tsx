@@ -8,8 +8,15 @@ import { getTrackerSnapshot } from "@/services/tracker";
 
 export const metadata: Metadata = { title: "All chapters" };
 
-export default async function ChaptersPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const [params, { actor, db, today }] = await Promise.all([searchParams, studentContext()]);
+export default async function ChaptersPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [params, { actor, db, today }] = await Promise.all([
+    searchParams,
+    studentContext(),
+  ]);
   const snapshot = await getTrackerSnapshot(db, actor, actor.id, today);
   const filter = parseFilterParams(params, snapshot.topics);
   const read = snapshot.totals.read;
@@ -23,7 +30,11 @@ export default async function ChaptersPage({ searchParams }: { searchParams: Pro
       />
       <div className="pb-6">
         {/* Remount when the link's filter changes (e.g. clicking a roadmap topic while already on this page). */}
-        <ChaptersView key={JSON.stringify(filter)} snapshot={snapshot} initialFilter={filter} />
+        <ChaptersView
+          key={JSON.stringify(filter)}
+          snapshot={snapshot}
+          initialFilter={filter}
+        />
       </div>
     </>
   );

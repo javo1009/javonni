@@ -1,7 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { IDLE, TIMER_KEY, parseTimerState, serializeTimerState, timerElapsed, timerPause, timerStart, type TimerState } from "@/lib/focus-timer";
+import {
+  IDLE,
+  TIMER_KEY,
+  parseTimerState,
+  serializeTimerState,
+  timerElapsed,
+  timerPause,
+  timerStart,
+  type TimerState,
+} from "@/lib/focus-timer";
 
 // The timer lives in localStorage so it survives navigation, reloads and other tabs.
 // If storage is blocked we fall back to memory for this page load.
@@ -71,13 +80,26 @@ export function useNow(active: boolean): number {
 
 export function useFocusTimer() {
   const state = useSyncExternalStore(subscribe, getSnapshot, () => IDLE);
-  const mounted = useSyncExternalStore(noop, () => true, () => false);
+  const mounted = useSyncExternalStore(
+    noop,
+    () => true,
+    () => false,
+  );
   const now = useNow(state.status === "running");
   // `now` is 0 until the first tick; the elapsed time then falls back to the stored accumulation.
-  const elapsedMs = timerElapsed(state, state.status === "running" ? Math.max(now, state.startedAt) : 0);
+  const elapsedMs = timerElapsed(
+    state,
+    state.status === "running" ? Math.max(now, state.startedAt) : 0,
+  );
 
-  const start = useCallback(() => write(timerStart(getSnapshot(), Date.now())), []);
-  const pause = useCallback(() => write(timerPause(getSnapshot(), Date.now())), []);
+  const start = useCallback(
+    () => write(timerStart(getSnapshot(), Date.now())),
+    [],
+  );
+  const pause = useCallback(
+    () => write(timerPause(getSnapshot(), Date.now())),
+    [],
+  );
   const reset = useCallback(() => write(IDLE), []);
   return { state, mounted, elapsedMs, start, pause, reset };
 }

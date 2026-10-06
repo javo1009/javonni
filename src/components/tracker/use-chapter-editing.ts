@@ -11,9 +11,17 @@ import type { ChapterPatch, ChapterView } from "@/services/tracker";
  * runs the server action in a transition, and the optimistic copy is dropped when the server's
  * fresh snapshot arrives (or reverted, with `error` set, if the save failed).
  */
-export function useChapterEditing(chapters: ChapterView[], today: ISODate, readOnly: boolean) {
-  const [optimistic, applyOptimistic] = useOptimistic(chapters, (current, change: { id: string; patch: ChapterPatch }) =>
-    current.map((c) => (c.id === change.id ? applyChapterPatch(c, change.patch, today) : c)),
+export function useChapterEditing(
+  chapters: ChapterView[],
+  today: ISODate,
+  readOnly: boolean,
+) {
+  const [optimistic, applyOptimistic] = useOptimistic(
+    chapters,
+    (current, change: { id: string; patch: ChapterPatch }) =>
+      current.map((c) =>
+        c.id === change.id ? applyChapterPatch(c, change.patch, today) : c,
+      ),
   );
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -28,14 +36,22 @@ export function useChapterEditing(chapters: ChapterView[], today: ISODate, readO
           const r = await setChapter({ moduleId: id, patch });
           if (!r.ok) setError(r.error);
         } catch {
-          setError("Couldn't save that change. Check your connection and try again.");
+          setError(
+            "Couldn't save that change. Check your connection and try again.",
+          );
         }
       });
     },
     [applyOptimistic, readOnly],
   );
 
-  return { chapters: optimistic, update, pending, error, clearError: () => setError(null) };
+  return {
+    chapters: optimistic,
+    update,
+    pending,
+    error,
+    clearError: () => setError(null),
+  };
 }
 
 export type ChapterUpdate = ReturnType<typeof useChapterEditing>["update"];

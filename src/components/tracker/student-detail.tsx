@@ -35,11 +35,25 @@ export function ReadOnlyTracker({ snapshot }: { snapshot: TrackerSnapshot }) {
       setFilterKey((k) => k + 1);
     }
     setTab(next);
-    requestAnimationFrame(() => refs.current[next]?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+    requestAnimationFrame(() =>
+      refs.current[next]?.scrollIntoView({
+        block: "nearest",
+        behavior: "smooth",
+      }),
+    );
   };
 
   function onKey(e: KeyboardEvent, i: number) {
-    const move = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : e.key === "Home" ? -i : e.key === "End" ? TABS.length : 0;
+    const move =
+      e.key === "ArrowRight"
+        ? 1
+        : e.key === "ArrowLeft"
+          ? -1
+          : e.key === "Home"
+            ? -i
+            : e.key === "End"
+              ? TABS.length
+              : 0;
     if (!move) return;
     e.preventDefault();
     const next = TABS[(i + move + TABS.length) % TABS.length].id;
@@ -50,9 +64,16 @@ export function ReadOnlyTracker({ snapshot }: { snapshot: TrackerSnapshot }) {
   return (
     <div>
       <p className="mb-4 text-sm text-ink-2">
-        Exam {formatDayLong(snapshot.examDate)} · {fmtHours(snapshot.weeklyTargetHours)} h a week target · {snapshot.daysLeft} {snapshot.daysLeft === 1 ? "day" : "days"} to go. Read-only view.
+        Exam {formatDayLong(snapshot.examDate)} ·{" "}
+        {fmtHours(snapshot.weeklyTargetHours)} h a week target ·{" "}
+        {snapshot.daysLeft} {snapshot.daysLeft === 1 ? "day" : "days"} to go.
+        Read-only view.
       </p>
-      <div role="tablist" aria-label="Student tracker sections" className="-mx-4 mb-6 flex gap-1 overflow-x-auto border-b border-border px-3 sm:mx-0 sm:px-0">
+      <div
+        role="tablist"
+        aria-label="Student tracker sections"
+        className="-mx-4 mb-6 flex gap-1 overflow-x-auto border-b border-border px-3 sm:mx-0 sm:px-0"
+      >
         {TABS.map((t, i) => {
           const active = tab === t.id;
           return (
@@ -69,17 +90,41 @@ export function ReadOnlyTracker({ snapshot }: { snapshot: TrackerSnapshot }) {
               tabIndex={active ? 0 : -1}
               onClick={() => setTab(t.id)}
               onKeyDown={(e) => onKey(e, i)}
-              className={cn("relative whitespace-nowrap px-4 pb-4 pt-3 text-[0.94rem] font-semibold transition-colors max-sm:min-h-11 max-sm:px-3", active ? "text-ink" : "text-ink-3 hover:text-ink")}
+              className={cn(
+                "relative whitespace-nowrap px-4 pb-4 pt-3 text-[0.94rem] font-semibold transition-colors max-sm:min-h-11 max-sm:px-3",
+                active ? "text-ink" : "text-ink-3 hover:text-ink",
+              )}
             >
               {t.label}
-              {active && <span aria-hidden className="absolute inset-x-3.5 bottom-0 h-[3px] rounded-t-[3px] bg-brand" />}
+              {active && (
+                <span
+                  aria-hidden
+                  className="absolute inset-x-3.5 bottom-0 h-[3px] rounded-t-[3px] bg-brand"
+                />
+              )}
             </button>
           );
         })}
       </div>
-      <div role="tabpanel" id={`ro-panel-${tab}`} aria-labelledby={`ro-tab-${tab}`} tabIndex={0} className="outline-offset-4">
-        {tab === "overview" && <OverviewView snapshot={snapshot} readOnly onTab={go} />}
-        {tab === "chapters" && <ChaptersView key={filterKey} snapshot={snapshot} readOnly initialFilter={filter} onTab={go} />}
+      <div
+        role="tabpanel"
+        id={`ro-panel-${tab}`}
+        aria-labelledby={`ro-tab-${tab}`}
+        tabIndex={0}
+        className="outline-offset-4"
+      >
+        {tab === "overview" && (
+          <OverviewView snapshot={snapshot} readOnly onTab={go} />
+        )}
+        {tab === "chapters" && (
+          <ChaptersView
+            key={filterKey}
+            snapshot={snapshot}
+            readOnly
+            initialFilter={filter}
+            onTab={go}
+          />
+        )}
         {tab === "hours" && <HoursView snapshot={snapshot} readOnly />}
         {tab === "mocks" && <MocksView snapshot={snapshot} readOnly />}
       </div>

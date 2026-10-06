@@ -27,7 +27,9 @@ export function BackupControls() {
     startTransition(async () => {
       const r = await exportBackupAction();
       if (!r.ok) return setError(r.error);
-      const url = URL.createObjectURL(new Blob([r.data.json], { type: "application/json" }));
+      const url = URL.createObjectURL(
+        new Blob([r.data.json], { type: "application/json" }),
+      );
       const a = document.createElement("a");
       a.href = url;
       a.download = r.data.filename;
@@ -44,12 +46,15 @@ export function BackupControls() {
     notify(null);
     setStaged(null);
     if (!file) return;
-    if (file.size > MAX_BYTES) return setError("That backup file is too large (the limit is 1 MB).");
+    if (file.size > MAX_BYTES)
+      return setError("That backup file is too large (the limit is 1 MB).");
     const text = await file.text();
     try {
       JSON.parse(text);
     } catch {
-      return setError("That file isn't valid JSON. Choose a backup you exported from the tracker.");
+      return setError(
+        "That file isn't valid JSON. Choose a backup you exported from the tracker.",
+      );
     }
     setStaged({ name: file.name, text });
   }
@@ -61,11 +66,18 @@ export function BackupControls() {
     startTransition(async () => {
       const r = await importBackupAction(text);
       if (!r.ok) return setError(r.error);
-      const sk = r.data.skipped as { modules?: number; sessions?: number; mocks?: number } | null;
-      const skipped = (sk?.modules ?? 0) + (sk?.sessions ?? 0) + (sk?.mocks ?? 0);
+      const sk = r.data.skipped as {
+        modules?: number;
+        sessions?: number;
+        mocks?: number;
+      } | null;
+      const skipped =
+        (sk?.modules ?? 0) + (sk?.sessions ?? 0) + (sk?.mocks ?? 0);
       notify(
         `Backup imported: ${r.data.chapters} chapters, ${r.data.sessions} study sessions, ${r.data.mocks} mock results.` +
-          (skipped ? ` Skipped ${skipped} entries that didn't match (${sk?.modules ?? 0} chapters, ${sk?.sessions ?? 0} sessions, ${sk?.mocks ?? 0} mocks).` : ""),
+          (skipped
+            ? ` Skipped ${skipped} entries that didn't match (${sk?.modules ?? 0} chapters, ${sk?.sessions ?? 0} sessions, ${sk?.mocks ?? 0} mocks).`
+            : ""),
       );
     });
   }
@@ -73,12 +85,24 @@ export function BackupControls() {
   return (
     <div className="flex flex-col items-end gap-2 max-sm:items-stretch">
       <div className="flex flex-wrap items-center justify-end gap-2.5 max-sm:justify-start">
-        <span className="mr-1 text-[0.82rem] text-ink-3">Progress is saved to your account</span>
-        <Button variant="secondary" size="sm" onClick={exportBackup} disabled={pending}>
+        <span className="mr-1 text-[0.82rem] text-ink-3">
+          Progress is saved to your account
+        </span>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={exportBackup}
+          disabled={pending}
+        >
           <Download aria-hidden className="size-4" />
           Export backup
         </Button>
-        <Button variant="secondary" size="sm" onClick={() => fileRef.current?.click()} disabled={pending}>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => fileRef.current?.click()}
+          disabled={pending}
+        >
           <Upload aria-hidden className="size-4" />
           Import backup
         </Button>
@@ -97,30 +121,48 @@ export function BackupControls() {
         />
       </div>
       {staged && (
-        <div role="alertdialog" aria-labelledby="import-confirm-title" aria-describedby="import-confirm-text" className="w-full max-w-xl rounded-xl border border-warn/40 bg-warn-soft p-4 text-sm text-warn">
+        <div
+          role="alertdialog"
+          aria-labelledby="import-confirm-title"
+          aria-describedby="import-confirm-text"
+          className="w-full max-w-xl rounded-xl border border-warn/40 bg-warn-soft p-4 text-sm text-warn"
+        >
           <p id="import-confirm-title" className="font-semibold">
             This replaces your progress
           </p>
           <p id="import-confirm-text" className="mt-1 text-ink-2">
-            Importing <strong className="text-ink">{staged.name}</strong> replaces your chapter progress, study sessions and mock results with what is in the file. Exam date and weekly hours are updated if the file has valid ones. This can&apos;t be undone.
+            Importing <strong className="text-ink">{staged.name}</strong>{" "}
+            replaces your chapter progress, study sessions and mock results with
+            what is in the file. Exam date and weekly hours are updated if the
+            file has valid ones. This can&apos;t be undone.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button variant="danger" size="sm" onClick={confirmImport}>
               Replace my progress
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => setStaged(null)}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setStaged(null)}
+            >
               Cancel
             </Button>
           </div>
         </div>
       )}
       {error && (
-        <p role="alert" className="max-w-xl rounded-lg bg-risk-soft px-3 py-2 text-sm text-risk">
+        <p
+          role="alert"
+          className="max-w-xl rounded-lg bg-risk-soft px-3 py-2 text-sm text-risk"
+        >
           {error}
         </p>
       )}
       {pending && <p className="text-sm text-ink-2">Working…</p>}
-      <StatusMessage notice={notice} className="max-w-xl text-right max-sm:text-left" />
+      <StatusMessage
+        notice={notice}
+        className="max-w-xl text-right max-sm:text-left"
+      />
     </div>
   );
 }

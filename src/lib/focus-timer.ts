@@ -21,7 +21,11 @@ export function timerElapsed(s: TimerState, now: number): number {
 
 export function timerStart(s: TimerState, now: number): TimerState {
   if (s.status === "running") return s;
-  return { status: "running", startedAt: now, accumulatedMs: s.status === "paused" ? s.accumulatedMs : 0 };
+  return {
+    status: "running",
+    startedAt: now,
+    accumulatedMs: s.status === "paused" ? s.accumulatedMs : 0,
+  };
 }
 
 export function timerPause(s: TimerState, now: number): TimerState {
@@ -30,13 +34,20 @@ export function timerPause(s: TimerState, now: number): TimerState {
 }
 
 /** Whole minutes to offer for logging, capped at a day, and whether they meet the 15 minute minimum. */
-export function loggable(elapsedMs: number): { minutes: number; enough: boolean } {
-  const minutes = Math.min(TIMER_MAX_MINUTES, Math.round(Math.max(0, elapsedMs) / 60_000));
+export function loggable(elapsedMs: number): {
+  minutes: number;
+  enough: boolean;
+} {
+  const minutes = Math.min(
+    TIMER_MAX_MINUTES,
+    Math.round(Math.max(0, elapsedMs) / 60_000),
+  );
   return { minutes, enough: minutes >= TIMER_MIN_MINUTES };
 }
 
 /** Minutes still needed to reach the minimum (0 when there is enough). */
-export const minutesToMinimum = (elapsedMs: number) => Math.max(0, TIMER_MIN_MINUTES - Math.floor(Math.max(0, elapsedMs) / 60_000));
+export const minutesToMinimum = (elapsedMs: number) =>
+  Math.max(0, TIMER_MIN_MINUTES - Math.floor(Math.max(0, elapsedMs) / 60_000));
 
 /** "1:05:09" for an hour or more, otherwise "05:09". */
 export function formatClock(ms: number): string {
@@ -48,7 +59,8 @@ export function formatClock(ms: number): string {
   return h > 0 ? `${h}:${two(m)}:${two(sec)}` : `${two(m)}:${two(sec)}`;
 }
 
-const finiteNonNegative = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0;
+const finiteNonNegative = (v: unknown): v is number =>
+  typeof v === "number" && Number.isFinite(v) && v >= 0;
 
 /** Read a stored timer defensively: anything malformed is treated as no timer. */
 export function parseTimerState(raw: string | null): TimerState {
@@ -56,9 +68,18 @@ export function parseTimerState(raw: string | null): TimerState {
   try {
     const v = JSON.parse(raw) as Record<string, unknown> | null;
     if (!v || typeof v !== "object") return IDLE;
-    if (v.status === "running" && finiteNonNegative(v.startedAt) && finiteNonNegative(v.accumulatedMs))
-      return { status: "running", startedAt: v.startedAt, accumulatedMs: v.accumulatedMs };
-    if (v.status === "paused" && finiteNonNegative(v.accumulatedMs)) return { status: "paused", accumulatedMs: v.accumulatedMs };
+    if (
+      v.status === "running" &&
+      finiteNonNegative(v.startedAt) &&
+      finiteNonNegative(v.accumulatedMs)
+    )
+      return {
+        status: "running",
+        startedAt: v.startedAt,
+        accumulatedMs: v.accumulatedMs,
+      };
+    if (v.status === "paused" && finiteNonNegative(v.accumulatedMs))
+      return { status: "paused", accumulatedMs: v.accumulatedMs };
   } catch {
     // fall through
   }

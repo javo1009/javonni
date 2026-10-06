@@ -3,7 +3,13 @@
 import { useEffect } from "react";
 import { Button, ButtonLink, EmptyState } from "@/components/ui";
 
-export default function StudentError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+export default function StudentError({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string };
+  reset: () => void;
+}) {
   useEffect(() => {
     console.error(error);
   }, [error]);
@@ -21,7 +27,11 @@ export default function StudentError({ error, reset }: { error: Error & { digest
         }
       >
         Something went wrong on our side. Your progress is safe.{" "}
-        {error.digest && <span className="block text-xs text-ink-3">Reference: {error.digest}</span>}
+        {error.digest && (
+          <span className="block text-xs text-ink-3">
+            Reference: {error.digest}
+          </span>
+        )}
       </EmptyState>
     </div>
   );

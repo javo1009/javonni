@@ -20,11 +20,17 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <Card aria-labelledby={id} className={cn("p-5 max-sm:p-4 sm:p-6", className)}>
+    <Card
+      aria-labelledby={id}
+      className={cn("p-5 max-sm:p-4 sm:p-6", className)}
+    >
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-0">
           {eyebrow && <Eyebrow className="mb-1.5">{eyebrow}</Eyebrow>}
-          <h2 id={id} className="text-[1.32rem] font-semibold leading-tight tracking-[-0.025em] text-ink">
+          <h2
+            id={id}
+            className="text-[1.32rem] font-semibold leading-tight tracking-[-0.025em] text-ink"
+          >
             {title}
           </h2>
         </div>
@@ -36,22 +42,53 @@ export function Panel({
 }
 
 /** Section heading between groups of panels. */
-export function SectionHeading({ eyebrow, title, children }: { eyebrow?: string; title: string; children?: ReactNode }) {
+export function SectionHeading({
+  eyebrow,
+  title,
+  children,
+}: {
+  eyebrow?: string;
+  title: string;
+  children?: ReactNode;
+}) {
   return (
     <div className="mb-4 mt-10 max-w-3xl">
       {eyebrow && <Eyebrow className="mb-1.5">{eyebrow}</Eyebrow>}
-      <h2 className="text-[1.5rem] font-semibold leading-tight tracking-[-0.03em] text-ink">{title}</h2>
+      <h2 className="text-[1.5rem] font-semibold leading-tight tracking-[-0.03em] text-ink">
+        {title}
+      </h2>
       {children && <p className="mt-1.5 text-sm text-ink-2">{children}</p>}
     </div>
   );
 }
 
 /** Small inline note when a panel has nothing to show yet. */
-export function Hint({ children, className }: { children: ReactNode; className?: string }) {
-  return <p className={cn("rounded-lg border border-dashed border-border-strong px-4 py-3 text-sm text-ink-2", className)}>{children}</p>;
+export function Hint({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <p
+      className={cn(
+        "rounded-lg border border-dashed border-border-strong px-4 py-3 text-sm text-ink-2",
+        className,
+      )}
+    >
+      {children}
+    </p>
+  );
 }
 
-export function Note({ tone = "neutral", children }: { tone?: "neutral" | "good" | "warn"; children: ReactNode }) {
+export function Note({
+  tone = "neutral",
+  children,
+}: {
+  tone?: "neutral" | "good" | "warn";
+  children: ReactNode;
+}) {
   return (
     <p
       className={cn(

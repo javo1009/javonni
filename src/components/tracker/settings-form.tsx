@@ -4,14 +4,31 @@ import { useState, useTransition, type FormEvent } from "react";
 import { saveSettings } from "@/app/actions/student";
 import { Button, Input } from "@/components/ui";
 import type { ISODate } from "@/domain/dates";
-import { EXAM_DATE_MAX, EXAM_DATE_MIN, fmtHours, validateSettings } from "@/lib/tracker-view";
+import {
+  EXAM_DATE_MAX,
+  EXAM_DATE_MIN,
+  fmtHours,
+  validateSettings,
+} from "@/lib/tracker-view";
 import { StatusMessage, useNotice } from "./messages";
 
 /** Exam date and weekly hours. Validated here (same rules as the server) and saved with one button. */
-export function SettingsForm({ examDate, weeklyTargetHours, today }: { examDate: ISODate; weeklyTargetHours: number; today: ISODate }) {
+export function SettingsForm({
+  examDate,
+  weeklyTargetHours,
+  today,
+}: {
+  examDate: ISODate;
+  weeklyTargetHours: number;
+  today: ISODate;
+}) {
   const [date, setDate] = useState<string>(examDate);
   const [hours, setHours] = useState(fmtHours(weeklyTargetHours));
-  const [errors, setErrors] = useState<{ examDate?: string; hours?: string; server?: string }>({});
+  const [errors, setErrors] = useState<{
+    examDate?: string;
+    hours?: string;
+    server?: string;
+  }>({});
   const [pending, startTransition] = useTransition();
   const [notice, notify] = useNotice();
   const dirty = date !== examDate || Number(hours) !== weeklyTargetHours;
@@ -23,15 +40,24 @@ export function SettingsForm({ examDate, weeklyTargetHours, today }: { examDate:
     notify(null);
     if (found.examDate || found.hours) return;
     startTransition(async () => {
-      const r = await saveSettings({ examDate: date, weeklyTargetHours: Number(hours) });
+      const r = await saveSettings({
+        examDate: date,
+        weeklyTargetHours: Number(hours),
+      });
       if (r.ok) notify("Settings saved. Your plan has been recalculated.");
       else setErrors({ server: r.error });
     });
   }
 
-  const label = "text-[0.76rem] font-bold uppercase tracking-[0.08em] text-ink-2";
+  const label =
+    "text-[0.76rem] font-bold uppercase tracking-[0.08em] text-ink-2";
   return (
-    <form onSubmit={submit} noValidate aria-label="Plan settings" className="w-full sm:w-auto">
+    <form
+      onSubmit={submit}
+      noValidate
+      aria-label="Plan settings"
+      className="w-full sm:w-auto"
+    >
       <div className="flex flex-wrap items-start gap-3 max-sm:[&>div]:flex-1">
         <div className="space-y-1.5">
           <label htmlFor="exam-date" className={label}>
@@ -71,7 +97,12 @@ export function SettingsForm({ examDate, weeklyTargetHours, today }: { examDate:
           <span aria-hidden className={`${label} invisible block`}>
             Save
           </span>
-          <Button type="submit" disabled={!dirty || pending} aria-busy={pending} className="max-sm:w-full">
+          <Button
+            type="submit"
+            disabled={!dirty || pending}
+            aria-busy={pending}
+            className="max-sm:w-full"
+          >
             {pending ? "Saving…" : "Save changes"}
           </Button>
         </div>
